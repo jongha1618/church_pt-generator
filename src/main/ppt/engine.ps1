@@ -55,6 +55,16 @@ function Get-Notes($slide) {
   return $t
 }
 
+function Get-SlideText($slide) {
+  $t = ""
+  foreach ($sh in $slide.Shapes) {
+    if ($sh.HasTextFrame) {
+      try { if ($sh.TextFrame.HasText) { $t += $sh.TextFrame.TextRange.Text + "`n" } } catch {}
+    }
+  }
+  return $t
+}
+
 function Find-SlideIndex($prs, [string]$marker) {
   for ($i = 1; $i -le $prs.Slides.Count; $i++) {
     $notes = Get-Notes $prs.Slides.Item($i)
@@ -168,7 +178,19 @@ function Export-Step($prs, $exp) {
   $total = $prs.Slides.Count
   $width = ([string]($total + 1)).Length
   $ext = if ($exp.imageType -eq "JPG") { "jpg" } else { "png" }
-  $idxs = Find-AllSlideIndexes $prs $exp.marker
+  $idxs = @(Find-AllSlideIndexes $prs $exp.marker)
+  # Also include slides matched by visible-text keyword (for template slides that
+  # carry no notes marker, e.g. the "휴대폰 진동/무음" notice).
+  if ($exp.alsoTextContains) {
+    $kws = @($exp.alsoTextContains)
+    for ($i = 1; $i -le $prs.Slides.Count; $i++) {
+      $txt = Get-SlideText $prs.Slides.Item($i)
+      foreach ($kw in $kws) {
+        if ($txt.Contains($kw)) { if ($idxs -notcontains $i) { $idxs += $i }; break }
+      }
+    }
+  }
+  $idxs = @($idxs | Sort-Object -Unique)
   if ($idxs.Count -eq 0) { Log "  (no slides matched '$($exp.marker)')"; return }
 
   foreach ($i in $idxs) {

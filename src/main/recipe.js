@@ -291,7 +291,7 @@ function buildJob(service, config, verses) {
   }
 
   const exports = [
-    { op: "exportSlides", name: "00-Announce", marker: "NOTES_intro_export", outDir: `${outDir}\\Slide-Images\\00-Announce`, imageType: "JPG", transparent: false },
+    { op: "exportSlides", name: "00-Announce", marker: "NOTES_intro_export", alsoTextContains: ["무음", "진동"], outDir: `${outDir}\\Slide-Images\\00-Announce`, imageType: "JPG", transparent: false },
     { op: "exportShapes", name: "01-Titles", marker: "MK_transparent_titles", outDir: `${outDir}\\Slide-Images\\01-Titles`, imageType: "PNG", transparent: true },
     { op: "exportShapes", name: "02-Verse", marker: "MK_transparent_bible_verse", outDir: `${outDir}\\Slide-Images\\02-Verse`, imageType: "PNG", transparent: true },
     { op: "exportSlides", name: "04-Ending", marker: "MK_closing_announcement", outDir: `${outDir}\\Slide-Images\\04-Ending`, imageType: "JPG", transparent: false },
