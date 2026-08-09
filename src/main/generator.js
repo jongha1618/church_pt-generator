@@ -115,10 +115,18 @@ function buildOszSongs(service, verses, refDisplay) {
 
 function runEngine(jobPath, onLog) {
   return new Promise((resolve, reject) => {
-    const enginePath = path.join(__dirname, "ppt", "engine.ps1");
+    // engine.ps1 ships inside app.asar when packaged; PowerShell's -File cannot
+    // read a virtual asar path, so copy the script out to a real temp file first.
+    // (Electron's fs can read from inside asar, so readFileSync works either way.)
+    const engineSrc = path.join(__dirname, "ppt", "engine.ps1");
+    const engineTmp = path.join(os.tmpdir(), `cppt-engine-${Date.now()}.ps1`);
+    fs.writeFileSync(engineTmp, fs.readFileSync(engineSrc));
+
+    const cleanupEngine = () => { try { fs.unlinkSync(engineTmp); } catch {} };
+
     const ps = spawn(
       "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", enginePath, "-JobPath", jobPath],
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", engineTmp, "-JobPath", jobPath],
       { windowsHide: true }
     );
     let stderr = "";
@@ -134,9 +142,10 @@ function runEngine(jobPath, onLog) {
       stderr += d.toString("utf8");
       d.toString("utf8").split(/\r?\n/).forEach((l) => { if (l.trim()) onLog("[err] " + l); });
     });
-    ps.on("error", reject);
+    ps.on("error", (err) => { cleanupEngine(); reject(err); });
     ps.on("close", (code) => {
       if (buf.length) onLog(buf);
+      cleanupEngine();
       if (code === 0) resolve();
       else reject(new Error(`engine.ps1 exited with code ${code}. ${stderr}`));
     });
