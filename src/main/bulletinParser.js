@@ -43,10 +43,30 @@ function stripQuotes(s) {
   return (s || "").replace(/^[\s"'“”‘’<>()]+|[\s"'“”‘’<>()]+$/g, "").trim();
 }
 
+// Extract a "이름 직분" (name + title) — or "" if none is found. Returning ""
+// (never the raw text) prevents unrelated text from leaking into {preacher} etc.
 function personName(s) {
-  // Keep first "이름 직분" token group (e.g. 고영호 장로 / 김형길 목사).
-  const m = /([가-힣]{2,4})\s*(목사|장로|집사|권사|전도사|사모|성도|안수집사)/.exec(s || "");
-  return m ? `${m[1]} ${m[2]}` : stripQuotes(s);
+  const m = /([가-힣]{2,4})\s*(목사|장로|집사|권사|전도사|사모|안수집사|성도)/.exec(s || "");
+  return m ? `${m[1]} ${m[2]}` : "";
+}
+
+// Preacher: prefer the worship-order "인도: <이름> 목사"; else the first "<이름> 목사"
+// in the bulletin; else "" (caller applies the default pastor).
+function parsePreacher(text) {
+  let m = /인도\s*[:：]\s*([가-힣]{2,4})\s*목사/.exec(text);
+  if (m) return `${m[1]} 목사`;
+  m = /([가-힣]{2,4})\s*목사/.exec(text);
+  return m ? `${m[1]} 목사` : "";
+}
+
+function parseBenediction(text) {
+  const m = /축도[^\n]{0,20}?([가-힣]{2,4})\s*목사/.exec(text);
+  return m ? `${m[1]} 목사` : "";
+}
+
+function parsePrayer(text) {
+  const m = /대표\s*기도[^\n]{0,20}?([가-힣]{2,4})\s*(장로|목사|집사|권사|전도사|안수집사|성도)/.exec(text);
+  return m ? `${m[1]} ${m[2]}` : "";
 }
 
 function isoDate(y, mo, d) {
@@ -112,9 +132,6 @@ async function parseBulletin(pdfPath) {
 
   const sermonTitle = stripQuotes(afterLabel(text, /말씀/));
   const scriptureRaw = stripQuotes(afterLabel(text, /성경\s*봉독/));
-  const prayerRaw = afterLabel(text, /대표\s*기도/);
-  const benedictionRaw = afterLabel(text, /축도/);
-  const preacherRaw = afterLabel(text, /인도/);
 
   // 성가대찬양: "2부: 성가대: 이제야 보이네" → special praise slot 2
   const choir2 = afterLabel(text, /성가대\s*찬양/);
@@ -131,9 +148,9 @@ async function parseBulletin(pdfPath) {
   const service = {
     date: parseDate(text),
     sermonTitle,
-    preacher: personName(preacherRaw) || "김형길 목사",
-    prayer: personName(prayerRaw),
-    benediction: personName(benedictionRaw) || "김형길 목사",
+    preacher: parsePreacher(text) || "김형길 목사",
+    prayer: parsePrayer(text),
+    benediction: parseBenediction(text) || "김형길 목사",
     mainVerses: normalizeScriptureRef(scriptureRaw),
     specialPraise,
     announcements: parseAnnouncements(rawText),
