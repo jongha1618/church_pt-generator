@@ -150,6 +150,53 @@ function parseChoir(text) {
   return slots;
 }
 
+// 봉사위원 (this-week servers table). The table has 4 date columns (this week +
+// next 3); PDF extraction flattens it, so this is best-effort for THIS week only.
+//  - 헌금위원/친교분배/안내위원/교회청소 usually span all weeks → value is on the
+//    same line as the label (reliable).
+//  - 대표기도/친교음식/헌화 vary per week → take the first name after the label.
+function parseServers(rawText) {
+  const res = { prayer: "", lunch: "", serving: "", flower: "", offering: "", guide: "", cleaning: "" };
+  const start = rawText.search(/봉사\s*위원/);
+  if (start < 0) return res;
+  let block = rawText.slice(start, start + 1000);
+  const end = block.search(/-\s*오늘\s*예배|이달의\s*행사|예배\s*시간\s*안내/);
+  if (end > 0) block = block.slice(0, end);
+  const lines = block.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const labels = ["대표기도", "친교음식", "친교", "헌화", "헌금위원", "친교분배", "안내위원", "교회청소"];
+  const nameRe = /[가-힣]{2,4}\s*(집사|권사|장로|목사|사모|전도사|안수집사|성도)/;
+  const isLabel = (l) => labels.some((lb) => l.startsWith(lb));
+
+  const sameLineValue = (label) => {
+    const line = lines.find((l) => l.startsWith(label));
+    if (!line) return "";
+    return line.slice(label.length).replace(/^[:：\s]+/, "").trim();
+  };
+  const firstCellAfter = (label) => {
+    const idx = lines.findIndex((l) => l.startsWith(label));
+    if (idx < 0) return "";
+    const same = lines[idx].slice(label.length).replace(/^[:：\s]+/, "").trim();
+    if (same && (nameRe.test(same) || /^EM\b/.test(same))) {
+      const m = nameRe.exec(same);
+      return m ? same.slice(0, same.indexOf(m[0]) + m[0].length).trim() : same;
+    }
+    for (let i = idx + 1; i < lines.length; i++) {
+      if (isLabel(lines[i])) break;
+      if (nameRe.test(lines[i]) || /^EM$/.test(lines[i])) return lines[i];
+    }
+    return "";
+  };
+
+  res.prayer = firstCellAfter("대표기도");
+  res.lunch = firstCellAfter("친교음식") || firstCellAfter("친교");
+  res.flower = firstCellAfter("헌화");
+  res.offering = sameLineValue("헌금위원");
+  res.serving = sameLineValue("친교분배");
+  res.guide = sameLineValue("안내위원");
+  res.cleaning = sameLineValue("교회청소");
+  return res;
+}
+
 // Hymn numbers referenced in the order of worship (찬 38장 / 찬송가 183장).
 function parseHymnNumbers(text) {
   const nums = [];
@@ -170,13 +217,20 @@ async function parseBulletin(pdfPath) {
   const scriptureRaw = stripQuotes(afterLabel(text, /성경\s*봉독/));
 
   const specialPraise = parseChoir(text);
+  const servers = parseServers(rawText);
 
   const service = {
     date: parseDate(text),
     sermonTitle,
     preacher: parsePreacher(text) || "김형길 목사",
-    prayer: parsePrayer(text),
+    prayer: parsePrayer(text) || servers.prayer,
     benediction: parseBenediction(text) || "김형길 목사",
+    lunch: servers.lunch,
+    serving: servers.serving,
+    flower: servers.flower,
+    offering: servers.offering,
+    guide: servers.guide,
+    cleaning: servers.cleaning,
     mainVerses: normalizeScriptureRef(scriptureRaw),
     specialPraise,
     announcements: parseAnnouncements(rawText),
@@ -191,4 +245,4 @@ async function parseBulletin(pdfPath) {
   };
 }
 
-module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir };
+module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir, parseServers };

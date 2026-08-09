@@ -113,6 +113,12 @@ function applyParsed(s, hints) {
   setIf("preacher", s.preacher);
   setIf("prayer", s.prayer);
   setIf("benediction", s.benediction);
+  setIf("lunch", s.lunch);
+  setIf("serving", s.serving);
+  setIf("flower", s.flower);
+  setIf("offering", s.offering);
+  setIf("guide", s.guide);
+  setIf("cleaning", s.cleaning);
   setIf("mainVerses", s.mainVerses);
   if (s.specialPraise) {
     const slot = (i, t, sg) => {
