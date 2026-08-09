@@ -49,13 +49,31 @@ function personName(s) {
   return m ? `${m[1]} ${m[2]}` : stripQuotes(s);
 }
 
+function isoDate(y, mo, d) {
+  return `${y}-${String(+mo).padStart(2, "0")}-${String(+d).padStart(2, "0")}`;
+}
+
+/**
+ * The bulletin contains several dates (cell meetings, events, the 성경통독 range
+ * "2025년11월15일-2026년11월15일", ...). The authoritative service date is the one
+ * printed with the volume/issue header, e.g. "제45권 32호  2026. 8. 9". We prefer
+ * that, and otherwise skip any date that is part of a range (touching '-'/'~').
+ */
 function parseDate(text) {
-  let m = /(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(text);
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
-  m = /제\s*\d+\s*권[^\n]*?(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})/.exec(text);
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
-  m = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})/.exec(text);
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
+  // 1) Highest priority: date right after the 권/호 header.
+  let m = /제\s*\d+\s*권\s*\d+\s*호[^0-9]{0,6}(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})/.exec(text);
+  if (m) return isoDate(m[1], m[2], m[3]);
+
+  // 2) "YYYY. M. D" not adjacent to a range marker.
+  const dotRe = /(?<![\d.~-])(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})(?!\s*[-~])/g;
+  let best = dotRe.exec(text);
+  if (best) return isoDate(best[1], best[2], best[3]);
+
+  // 3) "YYYY년 M월 D일" not adjacent to a range marker.
+  const korRe = /(?<![\d~-])(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*[-~])/g;
+  best = korRe.exec(text);
+  if (best) return isoDate(best[1], best[2], best[3]);
+
   return "";
 }
 
@@ -131,4 +149,4 @@ async function parseBulletin(pdfPath) {
   };
 }
 
-module.exports = { parseBulletin, normalizeScriptureRef };
+module.exports = { parseBulletin, normalizeScriptureRef, parseDate };
