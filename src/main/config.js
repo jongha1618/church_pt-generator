@@ -18,6 +18,9 @@ const DEFAULTS = {
   hymnDir: "C:\\church\\찬송가",
   // Praise & worship (경배와 찬양) library, organized by Korean initial.
   praiseDir: "C:\\church\\경배와 찬양",
+  // 축복송 (blessing song, inserted after the benediction). Changes yearly, so
+  // it is set in Settings; used when no per-week 예배 후 경배와 찬양 is uploaded.
+  blessingSongPath: "",
   // Bible text database root: {translation}\bookN.txt
   bibleDir: "C:\\church\\Bible.text",
   // Where the 5 output files are written.

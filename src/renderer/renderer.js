@@ -73,7 +73,7 @@ async function init() {
 // ---------- settings ---------------------------------------------------------
 
 function fillSettings() {
-  for (const k of ["templatePath","hymnDir","praiseDir","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
+  for (const k of ["templatePath","hymnDir","praiseDir","blessingSongPath","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
     const el = $("set_" + k);
     if (el) el.value = config[k] || "";
   }
@@ -81,7 +81,7 @@ function fillSettings() {
 
 async function saveSettings() {
   const patch = {};
-  for (const k of ["templatePath","hymnDir","praiseDir","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
+  for (const k of ["templatePath","hymnDir","praiseDir","blessingSongPath","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
     patch[k] = $("set_" + k).value.trim();
   }
   config = await window.api.saveConfig(patch);

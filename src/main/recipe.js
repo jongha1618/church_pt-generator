@@ -269,13 +269,20 @@ function buildJob(service, config, verses) {
     });
   }
 
-  // 8. 예배 후 경배와 찬양 song slides.
-  if (service.songs.closingPraise && service.songs.closingPraise.length) {
+  // 8. 축도 후 축복송 / 예배 후 경배와 찬양. Use the per-week upload if provided,
+  //    otherwise fall back to the annual 축복송 configured in Settings.
+  const closingPraiseFiles =
+    service.songs.closingPraise && service.songs.closingPraise.length
+      ? service.songs.closingPraise
+      : config.blessingSongPath
+      ? [config.blessingSongPath]
+      : [];
+  if (closingPraiseFiles.length) {
     steps.push({
       op: "insertPptx",
-      name: "예배 후 경배와 찬양",
+      name: "축복송 / 예배 후 경배와 찬양",
       marker: "MK_closing_praise",
-      files: service.songs.closingPraise,
+      files: closingPraiseFiles,
     });
   }
 
