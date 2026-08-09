@@ -100,18 +100,38 @@ function parseDate(text) {
 // Announcements: the 교회소식 block lists items, in the bulletin usually as
 // dash-led lines. We collect plausible announcement lines and let the user prune.
 function parseAnnouncements(rawText) {
-  const lines = rawText.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const out = [];
-  for (const line of lines) {
-    // dash / bullet led, of reasonable length, containing Hangul
-    if (/^[-•·]\s*/.test(line) && /[가-힣]/.test(line) && line.length > 6) {
-      const t = line.replace(/^[-•·]\s*/, "").trim();
-      // skip obvious non-announcements (worship-order labels)
-      if (/^(대표기도|광고|찬양|찬송|성경봉독|말씀|축도|헌금|성가대)\b/.test(t)) continue;
-      out.push(t);
+  // Scope to the 교회소식 announcement block: from the first "- 오늘 예배에 참석…"
+  // bullet up to "* 이달의 행사" (which lists events, not weekly announcements).
+  const startIdx = rawText.search(/-\s*오늘\s*예배/);
+  const endIdx = rawText.search(/[*]?\s*이달의\s*행사/);
+  let scope = rawText;
+  if (startIdx >= 0) scope = rawText.slice(startIdx, endIdx > startIdx ? endIdx : startIdx + 3000);
+
+  const lines = scope.split(/\n/);
+  const items = [];
+  let cur = null;
+  const flush = () => {
+    if (cur && cur.trim()) items.push(cur.replace(/\s+/g, " ").trim());
+    cur = null;
+  };
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) continue;
+    if (/^[-•·]\s*/.test(t)) {
+      flush();
+      cur = t.replace(/^[-•·]\s*/, "").trim();
+    } else if (cur !== null) {
+      cur += " " + t; // wrapped continuation line
     }
   }
-  return out;
+  flush();
+
+  return items.filter(
+    (t) =>
+      /[가-힣]/.test(t) &&
+      t.length > 6 &&
+      !/^(대표기도|광고|찬양|찬송|성경봉독|말씀|축도|헌금기도|성가대|헌금위원|친교|안내위원|교회청소)\b/.test(t)
+  );
 }
 
 // 성가대/특송 찬양: e.g. "성가대찬양(Choir): 1부:남성중창단(Men's Choir) 2부:성가대(Choir): 이제야 보이네"
@@ -245,4 +265,4 @@ async function parseBulletin(pdfPath) {
   };
 }
 
-module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir, parseServers };
+module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir, parseServers, parseAnnouncements };

@@ -1,0 +1,32 @@
+{datetime:%Y-%#m-%#d} | {service_title} | {sermon_title} | 임마누엘 선교교회
+
+{datetime:%Y년 %#m월 %#d일} {service_title} (임마누엘 선교교회)
+{preacher}
+{sermon_title} ({bible_verse1})
+
+{service_title} 순서
+00:00 예배 시작
+
+CCLI License #20756270
+CCLI Streaming License #20756287
+
+
+<!-- wp:core-embed/youtube {"url":"https://www.youtube.com/watch?v=o5yMr8svTiU","type":"video","providerNameSlug":"youtube","className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
+<figure class="wp-block-embed-youtube wp-block-embed is-type-video is-provider-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio"><div class="wp-block-embed__wrapper">
+https://www.youtube.com/watch?v=o5yMr8svTiU
+</div></figure>
+<!-- /wp:core-embed/youtube -->
+
+<!-- wp:paragraph {"fontSize":"medium"} -->
+<p class="has-medium-font-size">
+
+{bible_verse1}
+
+</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph {"fontSize":"medium"} -->
+<p class="has-medium-font-size">
+{each_verse1:%v %t}<br>
+</p>
+<!-- /wp:paragraph -->

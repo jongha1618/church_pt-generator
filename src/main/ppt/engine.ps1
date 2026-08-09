@@ -153,11 +153,11 @@ function Fill-VerseSlide($slide, $v) {
     if (-not $sh.HasTextFrame) { continue }
     try { if (-not $sh.TextFrame.HasText) { continue } } catch { continue }
     $txt = $sh.TextFrame.TextRange.Text
-    $matches = $rx.Matches($txt)
-    if ($matches.Count -eq 0) { continue }
-    # Replace longer tokens first to avoid partial overlaps.
+    $found = $rx.Matches($txt)
+    if ($found.Count -eq 0) { continue }
+    # Replace each distinct token once.
     $seen = @{}
-    foreach ($m in $matches) {
+    foreach ($m in $found) {
       $whole = $m.Value
       if ($seen.ContainsKey($whole)) { continue }
       $seen[$whole] = $true
@@ -175,27 +175,31 @@ function Export-Step($prs, $exp) {
   if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-  $total = $prs.Slides.Count
+  $total = [int]$prs.Slides.Count
   $width = ([string]($total + 1)).Length
   $ext = if ($exp.imageType -eq "JPG") { "jpg" } else { "png" }
-  $idxs = @(Find-AllSlideIndexes $prs $exp.marker)
-  # Also include slides matched by visible-text keyword (for template slides that
-  # carry no notes marker, e.g. the "휴대폰 진동/무음" notice).
-  if ($exp.alsoTextContains) {
-    $kws = @($exp.alsoTextContains)
-    for ($i = 1; $i -le $prs.Slides.Count; $i++) {
-      $txt = Get-SlideText $prs.Slides.Item($i)
-      foreach ($kw in $kws) {
-        if ($txt.Contains($kw)) { if ($idxs -notcontains $i) { $idxs += $i }; break }
-      }
-    }
-  }
-  $idxs = @($idxs | Sort-Object -Unique)
-  if ($idxs.Count -eq 0) { Log "  (no slides matched '$($exp.marker)')"; return }
+  $marker = [string]$exp.marker
+  $kws = @()
+  if ($exp.alsoTextContains) { $kws = @($exp.alsoTextContains) }
 
-  foreach ($i in $idxs) {
+  # Single pass: collect matching slide indexes as plain integers (marker in notes
+  # OR a visible-text keyword, for template slides that carry no notes marker).
+  $idxs = @()
+  for ($i = 1; $i -le $total; $i++) {
     $slide = $prs.Slides.Item($i)
-    $name = "Slide" + ([string]$i).PadLeft($width, "0") + "." + $ext
+    $hit = (Get-Notes $slide).Contains($marker)
+    if (-not $hit -and $kws.Count -gt 0) {
+      $txt = Get-SlideText $slide
+      foreach ($kw in $kws) { if ($txt.Contains([string]$kw)) { $hit = $true; break } }
+    }
+    if ($hit) { $idxs += [int]$i }
+  }
+  if ($idxs.Count -eq 0) { Log "  (no slides matched '$marker')"; return }
+
+  foreach ($n in $idxs) {
+    $idx = [int]$n
+    $slide = $prs.Slides.Item($idx)
+    $name = "Slide" + ([string]$idx).PadLeft($width, "0") + "." + $ext
     $file = Join-Path $dir $name
     if ($exp.op -eq "exportSlides") {
       $slide.Export($file, $exp.imageType, 0, 0)
@@ -203,7 +207,7 @@ function Export-Step($prs, $exp) {
       $w = [int]([double]$prs.PageSetup.SlideWidth * 1.563)
       $h = [int]([double]$prs.PageSetup.SlideHeight * 1.563)
       $win = $prs.Windows.Item(1)
-      $win.View.GotoSlide($i)
+      $win.View.GotoSlide($idx)
       $slide.Shapes.SelectAll()
       $win.Selection.ShapeRange.Export($file, $ppShapeFormatPNG, $w, $h, $ppRelativeToSlide)
     }

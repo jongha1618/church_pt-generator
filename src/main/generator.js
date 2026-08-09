@@ -15,6 +15,27 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function firstExisting(paths) {
+  for (const p of paths) {
+    try { if (p && fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
+
+// Candidate locations for a bundled default asset (packaged, then dev repo).
+function bundledResource(name) {
+  return [
+    path.join(process.resourcesPath || "", "template", name),
+    path.join(__dirname, "..", "..", "resources", name),
+  ];
+}
+
+// Use the configured template if it exists; otherwise fall back to the default
+// template bundled in the repo/installer.
+function resolveTemplatePath(configured) {
+  return firstExisting([configured, ...bundledResource("2026-Sunday-Template.pptx")]) || configured;
+}
+
 /** Format a single verse token spec (%b %c:%v %t) — mirrors engine.ps1 Format-Verse. */
 function formatVerse(fmt, v, useEnglish) {
   const spec = fmt || "%t";
@@ -184,14 +205,19 @@ async function generate(service, config, onLog = () => {}) {
   }
 
   const base = recipe.outputBaseName(service.date);
+  const templatePath = resolveTemplatePath(config.templatePath);
+  log(`템플릿: ${templatePath}`);
 
   // 2. 예배-Notes.txt
   const notesPath = path.join(outDir, "예배-Notes.txt");
-  const notesTplPath = path.join(path.dirname(config.templatePath), "예배-Notes-Template.txt");
+  const notesTplPath = firstExisting([
+    path.join(path.dirname(templatePath), "예배-Notes-Template.txt"),
+    ...bundledResource("예배-Notes-Template.txt"),
+  ]);
   let notesTpl = fallbackNotesTemplate();
-  try {
-    if (fs.existsSync(notesTplPath)) notesTpl = fs.readFileSync(notesTplPath, "utf8");
-  } catch {}
+  if (notesTplPath) {
+    try { notesTpl = fs.readFileSync(notesTplPath, "utf8"); } catch {}
+  }
   fs.writeFileSync(notesPath, buildNotesText(service, verses, notesTpl), "utf8");
   log(`노트 저장: ${notesPath}`);
 
@@ -212,6 +238,7 @@ async function generate(service, config, onLog = () => {}) {
 
   // 5. PPT + slide-images via PowerPoint COM engine
   const job = recipe.buildJob(service, config, verses);
+  job.templatePath = templatePath; // configured path or bundled default
   const jobPath = path.join(os.tmpdir(), `cppt-job-${Date.now()}.json`);
   fs.writeFileSync(jobPath, JSON.stringify(job, null, 2), "utf8");
   log("PowerPoint 엔진 실행 중... (PowerPoint 창이 잠시 열립니다)");
