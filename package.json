@@ -1,0 +1,60 @@
+{
+  "name": "church-ppt-generator",
+  "version": "0.1.0",
+  "description": "주보(PDF)를 읽어 예배 PPT / OSZ / 노트 / slide-images 를 자동 생성하는 데스크톱 앱 (임마누엘 선교교회)",
+  "author": "jongha1618",
+  "license": "MIT",
+  "main": "src/main/main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jongha1618/church_pt-generator.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --publish never",
+    "publish": "electron-builder --win nsis --publish always"
+  },
+  "devDependencies": {
+    "electron": "^30.0.9",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.12",
+    "pdf-parse": "^1.1.1"
+  },
+  "build": {
+    "appId": "org.emissionchurch.pptgenerator",
+    "productName": "Church PPT Generator",
+    "copyright": "Emmanuel Mission Church",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "ChurchPPTGenerator-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Church PPT Generator"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "jongha1618",
+      "repo": "church_pt-generator"
+    }
+  }
+}

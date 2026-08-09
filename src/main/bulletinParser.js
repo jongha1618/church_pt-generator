@@ -1,0 +1,134 @@
+"use strict";
+
+/**
+ * bulletinParser.js — best-effort extraction of weekly fields from the 주보 PDF.
+ *
+ * PDF text extraction loses most spacing/column structure, so every field here
+ * is a heuristic guess. The renderer always shows an editable review form
+ * (pre-filled with these guesses) plus the raw extracted text for reference, so
+ * imperfect parsing is expected and safe — the human confirms before generating.
+ */
+
+const fs = require("fs");
+
+// Korean Bible book long-names → the canonical name we feed to bible.js. We keep
+// the name as-is (bible.js matches against the version's own index.txt names),
+// so this map is mostly for normalizing common abbreviations found in bulletins.
+function normalizeScriptureRef(raw) {
+  if (!raw) return "";
+  let s = raw.replace(/\s+/g, " ").trim();
+  // "히브리서12장18-24" / "히브리서 12장 18-24절" / "히 12:18-24" → "히브리서 12:18-24"
+  // Convert 장/절 markers to :  and collapse.
+  s = s.replace(/\s*장\s*/g, ":").replace(/\s*편\s*/g, ":").replace(/\s*절\s*/g, "");
+  // Insert a space between a trailing Hangul book name and the first digit.
+  s = s.replace(/([가-힣])\s*(\d)/, "$1 $2");
+  // Collapse spaces around : and -
+  s = s.replace(/\s*:\s*/g, ":").replace(/\s*-\s*/g, "-");
+  return s.trim();
+}
+
+function collapse(text) {
+  return text.replace(/[ \t ]+/g, " ").replace(/\r/g, "");
+}
+
+// Grab the value after a Korean label up to end-of-line. Tolerant of the English
+// gloss + punctuation the bulletin uses, e.g. "말씀(Sermon): "시내산과 시온산"".
+function afterLabel(text, labelRegex) {
+  const re = new RegExp(labelRegex.source + String.raw`\s*(?:\([^)]*\))?\s*[:：\/]?\s*([^\n]+)`, labelRegex.flags);
+  const m = re.exec(text);
+  return m ? m[1].trim() : "";
+}
+
+function stripQuotes(s) {
+  return (s || "").replace(/^[\s"'“”‘’<>()]+|[\s"'“”‘’<>()]+$/g, "").trim();
+}
+
+function personName(s) {
+  // Keep first "이름 직분" token group (e.g. 고영호 장로 / 김형길 목사).
+  const m = /([가-힣]{2,4})\s*(목사|장로|집사|권사|전도사|사모|성도|안수집사)/.exec(s || "");
+  return m ? `${m[1]} ${m[2]}` : stripQuotes(s);
+}
+
+function parseDate(text) {
+  let m = /(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(text);
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
+  m = /제\s*\d+\s*권[^\n]*?(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})/.exec(text);
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
+  m = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})/.exec(text);
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`;
+  return "";
+}
+
+// Announcements: the 교회소식 block lists items, in the bulletin usually as
+// dash-led lines. We collect plausible announcement lines and let the user prune.
+function parseAnnouncements(rawText) {
+  const lines = rawText.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    // dash / bullet led, of reasonable length, containing Hangul
+    if (/^[-•·]\s*/.test(line) && /[가-힣]/.test(line) && line.length > 6) {
+      const t = line.replace(/^[-•·]\s*/, "").trim();
+      // skip obvious non-announcements (worship-order labels)
+      if (/^(대표기도|광고|찬양|찬송|성경봉독|말씀|축도|헌금|성가대)\b/.test(t)) continue;
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+// Hymn numbers referenced in the order of worship (찬 38장 / 찬송가 183장).
+function parseHymnNumbers(text) {
+  const nums = [];
+  const re = /찬(?:송가)?\s*(\d{1,3})\s*장/g;
+  let m;
+  while ((m = re.exec(text))) nums.push(+m[1]);
+  return Array.from(new Set(nums));
+}
+
+async function parseBulletin(pdfPath) {
+  const pdfParse = require("pdf-parse");
+  const buffer = fs.readFileSync(pdfPath);
+  const data = await pdfParse(buffer);
+  const rawText = data.text || "";
+  const text = collapse(rawText);
+
+  const sermonTitle = stripQuotes(afterLabel(text, /말씀/));
+  const scriptureRaw = stripQuotes(afterLabel(text, /성경\s*봉독/));
+  const prayerRaw = afterLabel(text, /대표\s*기도/);
+  const benedictionRaw = afterLabel(text, /축도/);
+  const preacherRaw = afterLabel(text, /인도/);
+
+  // 성가대찬양: "2부: 성가대: 이제야 보이네" → special praise slot 2
+  const choir2 = afterLabel(text, /성가대\s*찬양/);
+  const specialPraise = [
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+  ];
+  const choirTitleMatch = /(?:2부[:：]?\s*)?성가대[:：]\s*([^\n\/]+)/.exec(text);
+  if (choirTitleMatch) {
+    specialPraise[2] = { title: stripQuotes(choirTitleMatch[1]), singer: "성가대" };
+  }
+
+  const service = {
+    date: parseDate(text),
+    sermonTitle,
+    preacher: personName(preacherRaw) || "김형길 목사",
+    prayer: personName(prayerRaw),
+    benediction: personName(benedictionRaw) || "김형길 목사",
+    mainVerses: normalizeScriptureRef(scriptureRaw),
+    specialPraise,
+    announcements: parseAnnouncements(rawText),
+  };
+
+  return {
+    service,
+    rawText,
+    hints: {
+      hymnNumbers: parseHymnNumbers(text),
+      choir: choir2,
+    },
+  };
+}
+
+module.exports = { parseBulletin, normalizeScriptureRef };

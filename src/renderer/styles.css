@@ -1,0 +1,127 @@
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --ink: #1f2933;
+  --muted: #7b8794;
+  --line: #e1e6eb;
+  --brand: #2f6db3;
+  --brand-dark: #245a95;
+  --ok: #2e7d32;
+  --warn: #b26a00;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Malgun Gothic", "맑은 고딕", "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--brand);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.brand { font-size: 18px; font-weight: 700; }
+.brand .sub { font-size: 12px; font-weight: 400; opacity: 0.85; margin-left: 6px; }
+.spacer { flex: 1; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  align-items: start;
+}
+.col { display: flex; flex-direction: column; gap: 16px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.card h2 { margin: 0 0 12px; font-size: 16px; }
+.card h3 { margin: 16px 0 8px; font-size: 13px; color: var(--brand-dark); border-top: 1px dashed var(--line); padding-top: 12px; }
+
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+label.block { margin-top: 10px; }
+input, select, textarea {
+  font: inherit;
+  color: var(--ink);
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  width: 100%;
+}
+textarea { resize: vertical; line-height: 1.5; }
+input:focus, select:focus, textarea:focus { outline: 2px solid #bcd4ee; border-color: var(--brand); }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  padding: 8px 12px;
+}
+button.primary { background: var(--brand); color: #fff; }
+button.primary:hover { background: var(--brand-dark); }
+button.primary.big { padding: 12px 22px; font-size: 15px; font-weight: 700; }
+button.ghost { background: #fff; border-color: var(--line); color: var(--ink); }
+button.ghost:hover { background: #eef3f8; }
+
+.muted { color: var(--muted); font-size: 12px; }
+.hidden { display: none !important; }
+
+.rawtext, .preview, .log {
+  background: #0e1726;
+  color: #d6e2f0;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: Consolas, "D2Coding", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+.preview { background: #f7faff; color: #26405c; border: 1px solid var(--line); max-height: 180px; }
+details.raw { margin-top: 10px; }
+details.raw summary { cursor: pointer; color: var(--brand); font-size: 12px; }
+
+.songgroup { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+.sg-head { margin-bottom: 4px; }
+.hymnpick .hymn-input { max-width: 220px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #eef3f8; border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 6px 3px 10px; font-size: 12px;
+}
+.chip button { background: none; border: none; padding: 0 4px; color: var(--muted); font-size: 14px; }
+.chip button:hover { color: #c0392b; }
+
+.results { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.results a { color: var(--brand); cursor: pointer; text-decoration: underline; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal-body { background: #fff; border-radius: 12px; padding: 20px; width: 620px; max-width: 92vw; max-height: 90vh; overflow: auto; }
+.setrow { display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; align-items: center; margin: 8px 0; }
+.setrow label { flex-direction: row; color: var(--ink); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+code { background: #eef3f8; padding: 1px 5px; border-radius: 4px; }
