@@ -1,7 +1,22 @@
 "use strict";
 
+const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+
+// Window/taskbar icon. Drop the church logo at build/icon.png (square, >=256px)
+// and it is picked up here (dev) and by electron-builder (packaged exe/installer).
+function resolveIcon() {
+  const candidates = [
+    path.join(__dirname, "..", "..", "build", "icon.png"),
+    path.join(__dirname, "..", "assets", "icon.png"),
+    path.join(process.resourcesPath || "", "build", "icon.png"),
+  ];
+  for (const c of candidates) {
+    try { if (c && fs.existsSync(c)) return c; } catch {}
+  }
+  return undefined;
+}
 
 const config = require("./config");
 const bible = require("./bible");
@@ -17,6 +32,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 640,
     title: "Church PPT Generator",
+    icon: resolveIcon(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

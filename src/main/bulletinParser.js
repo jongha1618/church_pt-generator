@@ -114,6 +114,42 @@ function parseAnnouncements(rawText) {
   return out;
 }
 
+// 성가대/특송 찬양: e.g. "성가대찬양(Choir): 1부:남성중창단(Men's Choir) 2부:성가대(Choir): 이제야 보이네"
+// → up to 3 slots [{title,singer}]: slot0 = 1부, slot2 = 2부 (matches template special_praise0/2).
+function parseChoir(text) {
+  const slots = [
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+  ];
+  const start = text.search(/성가대\s*찬양/);
+  if (start < 0) return slots;
+  let scope = text.slice(start, start + 240).replace(/\n/g, " ");
+  const stop = scope.search(/성경\s*봉독|성경봉독|말씀\s*[(:：]/);
+  if (stop > 0) scope = scope.slice(0, stop);
+
+  const clean = (s) =>
+    (s || "")
+      .replace(/\([^)]*\)/g, " ") // drop (Choir)/(Men's Choir) glosses
+      .replace(/[’']/g, "'")
+      .replace(/[-*·/]+\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const parseOne = (frag) => {
+    const f = clean(frag);
+    if (!f) return { title: "", singer: "" };
+    const mm = /^(.*?)\s*[:：]\s*(.+)$/.exec(f); // "성가대 : 이제야 보이네"
+    if (mm && mm[2]) return { singer: mm[1].trim(), title: mm[2].trim() };
+    return { singer: f, title: "" }; // team only, e.g. 남성중창단
+  };
+
+  const parts = scope.split(/2\s*부\s*[:：]?/);
+  const m1 = /1\s*부\s*[:：]?\s*(.*)$/.exec(parts[0] || "");
+  slots[0] = parseOne(m1 ? m1[1] : "");
+  slots[2] = parseOne(parts[1] || "");
+  return slots;
+}
+
 // Hymn numbers referenced in the order of worship (찬 38장 / 찬송가 183장).
 function parseHymnNumbers(text) {
   const nums = [];
@@ -133,17 +169,7 @@ async function parseBulletin(pdfPath) {
   const sermonTitle = stripQuotes(afterLabel(text, /말씀/));
   const scriptureRaw = stripQuotes(afterLabel(text, /성경\s*봉독/));
 
-  // 성가대찬양: "2부: 성가대: 이제야 보이네" → special praise slot 2
-  const choir2 = afterLabel(text, /성가대\s*찬양/);
-  const specialPraise = [
-    { title: "", singer: "" },
-    { title: "", singer: "" },
-    { title: "", singer: "" },
-  ];
-  const choirTitleMatch = /(?:2부[:：]?\s*)?성가대[:：]\s*([^\n\/]+)/.exec(text);
-  if (choirTitleMatch) {
-    specialPraise[2] = { title: stripQuotes(choirTitleMatch[1]), singer: "성가대" };
-  }
+  const specialPraise = parseChoir(text);
 
   const service = {
     date: parseDate(text),
@@ -161,9 +187,8 @@ async function parseBulletin(pdfPath) {
     rawText,
     hints: {
       hymnNumbers: parseHymnNumbers(text),
-      choir: choir2,
     },
   };
 }
 
-module.exports = { parseBulletin, normalizeScriptureRef, parseDate };
+module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir };

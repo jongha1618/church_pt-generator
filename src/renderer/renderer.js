@@ -115,8 +115,13 @@ function applyParsed(s, hints) {
   setIf("benediction", s.benediction);
   setIf("mainVerses", s.mainVerses);
   if (s.specialPraise) {
-    setIf("sp2t", s.specialPraise[2]?.title);
-    setIf("sp2s", s.specialPraise[2]?.singer);
+    const slot = (i, t, sg) => {
+      setIf(t, s.specialPraise[i]?.title);
+      setIf(sg, s.specialPraise[i]?.singer);
+    };
+    slot(0, "sp0t", "sp0s");
+    slot(1, "sp1t", "sp1s");
+    slot(2, "sp2t", "sp2s");
   }
   if (s.announcements && s.announcements.length) {
     $("announcements").value = blocksToText(s.announcements);
