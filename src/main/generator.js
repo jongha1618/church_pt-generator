@@ -134,14 +134,18 @@ function buildOszSongs(service, verses, refDisplay) {
   return songs;
 }
 
-function runEngine(jobPath, onLog) {
+function runEngine(jobPath, onLog, onEngineProgress) {
   return new Promise((resolve, reject) => {
     // engine.ps1 ships inside app.asar when packaged; PowerShell's -File cannot
     // read a virtual asar path, so copy the script out to a real temp file first.
     // (Electron's fs can read from inside asar, so readFileSync works either way.)
     const engineSrc = path.join(__dirname, "ppt", "engine.ps1");
     const engineTmp = path.join(os.tmpdir(), `cppt-engine-${Date.now()}.ps1`);
-    fs.writeFileSync(engineTmp, fs.readFileSync(engineSrc));
+    // Windows PowerShell 5.1 decodes a .ps1 as ANSI unless it starts with a
+    // UTF-8 BOM, which mangles the Korean strings in the script. The repo file
+    // stays BOM-free (git-friendly); the temp copy gets one.
+    const engineText = fs.readFileSync(engineSrc, "utf8").replace(/^﻿/, "");
+    fs.writeFileSync(engineTmp, "﻿" + engineText, "utf8");
 
     const cleanupEngine = () => { try { fs.unlinkSync(engineTmp); } catch {} };
 
@@ -156,7 +160,13 @@ function runEngine(jobPath, onLog) {
       buf += chunk.toString("utf8");
       const parts = buf.split(/\r?\n/);
       buf = parts.pop();
-      for (const line of parts) if (line.length) onLog(line);
+      for (const line of parts) {
+        if (!line.length) continue;
+        // "@@PROGRESS done total label" drives the progress bar, not the log.
+        const p = /^@@PROGRESS (\d+) (\d+) ?(.*)$/.exec(line);
+        if (p) onEngineProgress(+p[1], +p[2], p[3]);
+        else onLog(line);
+      }
     };
     ps.stdout.on("data", flush);
     ps.stderr.on("data", (d) => {
@@ -175,15 +185,28 @@ function runEngine(jobPath, onLog) {
 
 /**
  * Generate the 5 outputs (pptx, osz, 2 txt, slide-images) under config.outputDir.
- * onLog(line) streams progress. Returns the produced paths.
+ * onLog(line) streams the engine log; onProgress({percent,label,done}) drives the
+ * progress bar. Returns the produced paths.
  */
-async function generate(service, config, onLog = () => {}) {
+async function generate(service, config, onLog = () => {}, onProgress = () => {}) {
   const log = (m) => onLog(String(m));
+
+  // The PowerPoint engine is the slow part, so it gets most of the bar. The
+  // preparation steps before it share the first PREP_SHARE.
+  const PREP_STEPS = ["성경 구절 조회", "노트 저장", "성경구절 저장", "OSZ 저장"];
+  const PREP_SHARE = 0.15;
+  let prepDone = 0;
+  const prep = (label) => {
+    const percent = Math.round((prepDone / PREP_STEPS.length) * PREP_SHARE * 100);
+    onProgress({ percent, label, done: false });
+    prepDone++;
+  };
 
   const outDir = config.outputDir;
   ensureDir(outDir);
 
   // 1. Scripture lookup (bilingual).
+  prep(PREP_STEPS[0]);
   let verses = [];
   let refDisplay = service.mainVerses || "";
   if (service.mainVerses) {
@@ -209,6 +232,7 @@ async function generate(service, config, onLog = () => {}) {
   log(`템플릿: ${templatePath}`);
 
   // 2. 예배-Notes.txt
+  prep(PREP_STEPS[1]);
   const notesPath = path.join(outDir, "예배-Notes.txt");
   const notesTplPath = firstExisting([
     path.join(path.dirname(templatePath), "예배-Notes-Template.txt"),
@@ -222,11 +246,13 @@ async function generate(service, config, onLog = () => {}) {
   log(`노트 저장: ${notesPath}`);
 
   // 3. 예배 성경구절.txt (UTF-16LE + BOM)
+  prep(PREP_STEPS[2]);
   const versesPath = path.join(outDir, "예배 성경구절.txt");
   fs.writeFileSync(versesPath, Buffer.from(buildVersesText(refDisplay, verses), "utf16le"));
   log(`성경구절 저장: ${versesPath}`);
 
   // 4. .osz service file
+  prep(PREP_STEPS[3]);
   const oszPath = path.join(outDir, `${base}.osz`);
   try {
     const songs = buildOszSongs(service, verses, refDisplay);
@@ -242,8 +268,17 @@ async function generate(service, config, onLog = () => {}) {
   const jobPath = path.join(os.tmpdir(), `cppt-job-${Date.now()}.json`);
   fs.writeFileSync(jobPath, JSON.stringify(job, null, 2), "utf8");
   log("PowerPoint 엔진 실행 중... (PowerPoint 창이 잠시 열립니다)");
-  await runEngine(jobPath, log);
+  await runEngine(jobPath, log, (done, total, label) => {
+    const frac = total > 0 ? done / total : 0;
+    onProgress({
+      percent: Math.round((PREP_SHARE + (1 - PREP_SHARE) * frac) * 100),
+      label,
+      done: false,
+    });
+  });
   try { fs.unlinkSync(jobPath); } catch {}
+
+  onProgress({ percent: 100, label: "완료", done: true });
 
   return {
     ok: true,

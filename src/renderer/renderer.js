@@ -56,6 +56,7 @@ function textToBlocks(text) {
 async function init() {
   config = await window.api.getConfig();
   fillSettings();
+  $("appVersion").textContent = "V" + (config.appVersion || "?");
 
   // bible versions
   const vres = await window.api.bibleVersions(config.bibleDir);
@@ -131,12 +132,15 @@ async function loadBulletin(pdfPath) {
   $("pdfName").textContent = pdfPath.split(/[\\/]/).pop();
   $("pdfName").classList.remove("muted");
   $("songStatus").textContent = "주보 분석 중…";
+  setProgress("running", 3, "주보 분석 중…");
   const res = await window.api.parseBulletin(pdfPath);
   if (!res.ok) {
     $("pdfName").textContent = "파싱 실패: " + res.error;
     $("songStatus").textContent = "";
+    setProgress("error", 100, "주보 분석 실패: " + res.error);
     return false;
   }
+  setProgress("idle", 0, "주보를 읽었습니다. ‘PPT 생성’ 을 누르세요.");
   $("rawText").textContent = res.rawText || "";
   applyParsed(res.service, res.hints);
   applySongs(res);
@@ -223,6 +227,22 @@ function applySongs(res) {
   line("ok", `주보의 찬양 ${matched.length + unmatched.length}곡 중 ${matched.length}곡을 찾았습니다.`);
   matched.filter((m) => m.note).forEach((m) => line("warn", `※ ${m.label} → ${m.name} (${m.note})`));
   unmatched.forEach((m) => line("warn", `✗ 파일 없음: ${m.label} — 직접 추가하세요`));
+}
+
+// ---------- progress bar -----------------------------------------------------
+
+/**
+ * The bar under the header. `stateName` is idle | running | done | error; it
+ * stays on screen for the whole session so the status never has to be hunted
+ * for at the bottom of a long form.
+ */
+function setProgress(stateName, percent, label) {
+  const bar = $("progress");
+  bar.className = "progress " + stateName;
+  const pct = Math.max(0, Math.min(100, Math.round(percent || 0)));
+  $("progressFill").style.width = pct + "%";
+  $("progressLabel").textContent = label || "";
+  $("progressPct").textContent = stateName === "idle" ? "" : pct + "%";
 }
 
 // ---------- bible preview ----------------------------------------------------
@@ -332,21 +352,29 @@ async function generate() {
   $("btnGenerate").disabled = true;
   $("btnAuto").disabled = true;
 
+  setProgress("running", 0, "생성 준비 중…");
+
   const unsub = window.api.onGenerateLog((line) => {
     $("log").textContent += line + "\n";
     $("log").scrollTop = $("log").scrollHeight;
+  });
+  const unsubP = window.api.onGenerateProgress((p) => {
+    setProgress(p.done ? "done" : "running", p.percent, p.label);
   });
 
   try {
     const res = await window.api.generate(service);
     if (res.ok) {
       $("genStatus").textContent = "완료 ✅";
+      setProgress("done", 100, "완료 — " + res.outPptx.split(/[\\/]/).pop());
       showResults(res);
     } else {
       $("genStatus").textContent = "실패 ❌ " + (res.error || "");
+      setProgress("error", 100, "실패: " + (res.error || ""));
     }
   } finally {
     unsub && unsub();
+    unsubP && unsubP();
     $("btnGenerate").disabled = false;
     $("btnAuto").disabled = false;
   }

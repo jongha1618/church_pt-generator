@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld("api", {
   openPath: (p) => ipcRenderer.invoke("openPath", p),
 
   generate: (service) => ipcRenderer.invoke("generate", service),
+  onGenerateProgress: (cb) => {
+    const listener = (_e, p) => cb(p);
+    ipcRenderer.on("generate:progress", listener);
+    return () => ipcRenderer.removeListener("generate:progress", listener);
+  },
   onGenerateLog: (cb) => {
     const listener = (_e, line) => cb(line);
     ipcRenderer.on("generate:log", listener);

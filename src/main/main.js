@@ -61,6 +61,7 @@ ipcMain.handle("config:get", () => {
   const cfg = config.load();
   // The 주보 arrives by e-mail, so Downloads is the sensible default start folder.
   if (!cfg.bulletinDir) cfg.bulletinDir = app.getPath("downloads");
+  cfg.appVersion = app.getVersion(); // shown in the corner of the window
   return cfg;
 });
 ipcMain.handle("config:save", (_e, patch) => config.save(patch || {}));
@@ -146,8 +147,9 @@ ipcMain.handle("openPath", async (_e, p) => {
 ipcMain.handle("generate", async (event, service) => {
   const cfg = config.load();
   const onLog = (line) => event.sender.send("generate:log", line);
+  const onProgress = (p) => event.sender.send("generate:progress", p);
   try {
-    const result = await generate(service, cfg, onLog);
+    const result = await generate(service, cfg, onLog, onProgress);
     return { ok: true, ...result };
   } catch (e) {
     onLog("[error] " + e.message);

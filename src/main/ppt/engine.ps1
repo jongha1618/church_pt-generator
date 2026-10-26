@@ -24,6 +24,15 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Log([string]$m) { Write-Host $m }
 
+# Machine-readable progress for the app's progress bar. generator.js picks these
+# lines out of stdout; they are not shown in the log panel.
+$script:progressDone = 0
+$script:progressTotal = 1
+function Progress([string]$label) {
+  Write-Host ("@@PROGRESS " + $script:progressDone + " " + $script:progressTotal + " " + $label)
+  $script:progressDone++
+}
+
 # PowerPoint enum constants
 $ppSaveAsOpenXMLPresentation = 24
 $ppShapeFormatPNG = 2
@@ -32,6 +41,9 @@ $ppAlertsNone = 1
 $ppViewNormal = 9
 
 $job = Get-Content -Raw -LiteralPath $JobPath -Encoding UTF8 | ConvertFrom-Json
+
+# One unit per structural step, plus the token pass, the save and each export.
+$script:progressTotal = @($job.steps).Count + @($job.exports).Count + 2
 
 Log "=== Church PPT Generator engine ==="
 Log ("template : " + $job.templatePath)
@@ -252,6 +264,7 @@ Log ("opened template with " + $prs.Slides.Count + " slides")
 
 try {
   foreach ($step in $job.steps) {
+    Progress $step.name
     Log ("- step: " + $step.name + " (" + $step.op + ")")
     switch ($step.op) {
       "duplicateFill" {
@@ -313,15 +326,18 @@ try {
     }
   }
 
+  Progress "문구 채우기"
   Log "- applying global token replacements"
   Replace-Global $prs $job.replaceGlobal
 
   $outDir = Split-Path $job.outPptx -Parent
   if (-not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
+  Progress "PPT 저장"
   $prs.SaveAs($job.outPptx, $ppSaveAsOpenXMLPresentation)
   Log ("saved: " + $job.outPptx)
 
   foreach ($exp in $job.exports) {
+    Progress ("이미지 " + $exp.name)
     Log ("- export: " + $exp.name)
     try { Export-Step $prs $exp } catch { Log "  ! export failed: $($_.Exception.Message)" }
   }

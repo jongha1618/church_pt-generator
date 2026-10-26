@@ -14,6 +14,16 @@
       <button id="btnSettings" class="ghost">⚙️ 설정</button>
     </header>
 
+    <!-- Generation progress. Always on screen, so it stays visible no matter
+         which part of the (long) form the user is looking at. -->
+    <div id="progress" class="progress idle">
+      <div id="progressFill" class="progress-fill"></div>
+      <div class="progress-text">
+        <span id="progressLabel">주보를 불러오면 여기에 진행 상황이 표시됩니다.</span>
+        <span id="progressPct"></span>
+      </div>
+    </div>
+
     <main class="layout">
       <div class="col">
         <!-- Step 1: bulletin -->
@@ -187,6 +197,8 @@
         </div>
       </div>
     </div>
+
+    <div id="appVersion" class="version" title="프로그램 버전"></div>
 
     <script src="renderer.js"></script>
   </body>
