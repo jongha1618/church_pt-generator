@@ -133,19 +133,24 @@ code { background: #eef3f8; padding: 1px 5px; border-radius: 4px; }
 .results .warn { color: #b26a00; font-size: 12px; }
 
 /* Generation progress bar, pinned under the header so it is visible from
-   anywhere in the form (the small status next to the button was easy to miss). */
+   anywhere in the form (the small status next to the button was easy to miss).
+   The fill is amber on purpose — the header is already the brand blue, and a
+   blue bar on blue made the filled portion impossible to pick out. */
 .progress {
   position: relative;
-  height: 26px;
-  background: #e9eef4;
-  border-bottom: 1px solid var(--line);
+  height: 30px;
+  background: #dfe6ee;
+  border-bottom: 1px solid #c2ccd8;
   overflow: hidden;
 }
 .progress-fill {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0;
-  background: var(--brand);
+  background: linear-gradient(180deg, #ffc44d 0%, #f5a310 100%);
+  /* A hard edge plus a shadow makes the exact position obvious at a glance. */
+  border-right: 2px solid #c97f00;
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.18);
   transition: width 0.25s ease;
 }
 .progress-text {
@@ -153,19 +158,30 @@ code { background: #eef3f8; padding: 1px 5px; border-radius: 4px; }
   height: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 0 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #1d2b3a;
-  /* The label sits on both the filled and unfilled part, so keep it readable. */
-  text-shadow: 0 0 3px rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #14202e;
 }
+/* Percent first, so it is readable whether or not the fill has reached it. */
+#progressPct {
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+.progress.idle { background: #eef2f7; }
 .progress.idle .progress-text { color: var(--muted); font-weight: 400; }
-.progress.running .progress-fill { background: var(--brand); }
-.progress.done .progress-fill { background: #1f9254; }
-.progress.error .progress-fill { background: #c0392b; width: 100% !important; }
-.progress.error .progress-text { color: #fff; text-shadow: none; }
+.progress.done .progress-fill {
+  background: linear-gradient(180deg, #34c177 0%, #1f9254 100%);
+  border-right-color: #15693c;
+}
+.progress.done .progress-text { color: #0d2c1b; }
+.progress.error .progress-fill {
+  background: linear-gradient(180deg, #e05c4b 0%, #c0392b 100%);
+  border-right-color: #8e2a1f;
+  width: 100% !important;
+}
+.progress.error .progress-text { color: #fff; }
 
 /* App version, pinned to the bottom-right corner of the window. */
 .version {
