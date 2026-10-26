@@ -131,10 +131,39 @@ function indexPraise(praiseDir) {
   return items;
 }
 
-/** Later-listed candidates only win on a strictly better score. */
+/**
+ * Last-modified time, read lazily — only candidates that actually tie on score
+ * get stat'd, which keeps indexing the ~3,400-file library fast.
+ */
+function mtimeOf(entry) {
+  if (entry._mtime === undefined) {
+    try {
+      entry._mtime = fs.statSync(entry.file).mtimeMs;
+    } catch {
+      entry._mtime = 0;
+    }
+  }
+  return entry._mtime;
+}
+
+/**
+ * Later-listed candidates only win on a strictly better score.
+ *
+ * `rank` is the position of the candidate's library in the search order, so the
+ * caller decides which library to trust first (a "찬 N장" song is looked up in
+ * the 찬송가 library first, a plain title in 경배와찬양).
+ *
+ * Within one library a song accumulates several files ("… .pptx", "…1.pptx",
+ * "… - 2.pptx", "…-edit.ppt"). Whoever maintains the library saves the reworked
+ * version as a new file, so among equally good matches the newest one is the
+ * one actually in use.
+ */
 function better(a, b) {
   if (!a) return true;
   if (b.score !== a.score) return b.score > a.score;
+  if (b.rank !== a.rank) return b.rank < a.rank; // preferred library first
+  const [ma, mb] = [mtimeOf(a.entry), mtimeOf(b.entry)];
+  if (mb !== ma) return mb > ma; // newest file wins
   if (b.entry.pptx !== a.entry.pptx) return b.entry.pptx; // .pptx over .ppt
   if (b.entry.suffixed !== a.entry.suffixed) return !b.entry.suffixed;
   return b.entry.base.length < a.entry.base.length; // least decorated name
@@ -191,17 +220,17 @@ function scoreEntry(entry, q) {
   return best;
 }
 
-/** Best-scoring entry for a title across one or more indexes. */
+/** Best-scoring entry for a title; earlier indexes are the preferred library. */
 function bestByTitle(indexes, title) {
   const q = normalize(title);
   if (!q) return null;
   let win = null;
-  for (const index of indexes) {
+  indexes.forEach((index, rank) => {
     for (const entry of index) {
       const score = scoreEntry(entry, q);
-      if (score && better(win, { entry, score })) win = { entry, score };
+      if (score && better(win, { entry, score, rank })) win = { entry, score, rank };
     }
-  }
+  });
   return win;
 }
 
@@ -211,12 +240,13 @@ function matchPraise(index, title) {
   return win ? win.entry : null;
 }
 
-/** Every hymn file carrying this 찬송가 number (cleanest filename first). */
+/** Every hymn file carrying this 찬송가 number — newest, then cleanest name. */
 function bestByNumber(index, num) {
   let win = null;
   for (const entry of index) {
     if (entry.num !== num) continue;
-    if (better(win, { entry, score: 1 })) win = { entry, score: 1 };
+    const cand = { entry, score: 1, rank: 0 };
+    if (better(win, cand)) win = cand;
   }
   return win;
 }
@@ -238,7 +268,11 @@ function matchHymn(index, item) {
 function findSong(item, hymnIndex, praiseIndex) {
   const title = (item && item.title) || "";
   const q = normalize(title);
-  const byTitle = bestByTitle([praiseIndex, hymnIndex], title);
+  // A printed 찬 N장 means the 찬송가 library is authoritative for the title too;
+  // a bare title is a CCM song, so 경배와찬양 comes first.
+  const byTitle = (item && item.num)
+    ? bestByTitle([hymnIndex, praiseIndex], title)
+    : bestByTitle([praiseIndex, hymnIndex], title);
 
   if (item && item.num) {
     const byNum = bestByNumber(hymnIndex, item.num);
