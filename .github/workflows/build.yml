@@ -46,6 +46,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          # Without this the 'latest' tag stays pinned to the commit that first
+          # created it, so the repo keeps an old commit permanently reachable.
+          target_commitish: ${{ github.sha }}
           name: 최신 빌드 (main)
           body: |
             `main` 최신 커밋으로 자동 빌드된 설치 파일입니다.
