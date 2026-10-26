@@ -136,12 +136,22 @@ function Insert-Pptx($pp, $prs, [string]$srcPath, [int]$afterIndex) {
     Log "  ! song file missing, skipping: $srcPath"
     return 0
   }
-  $src = $pp.Presentations.Open($srcPath, $true, $false, $false) # ReadOnly, notUntitled, noWindow
+  # One unreadable or empty song file must not abort the whole deck.
+  $src = $null
   try {
+    $src = $pp.Presentations.Open($srcPath, $true, $false, $false) # ReadOnly, notUntitled, noWindow
+    if ($src.Slides.Count -lt 1) {
+      Log "  ! 슬라이드가 없는 파일이라 건너뜁니다: $(Split-Path $srcPath -Leaf)"
+      return 0
+    }
     $src.Slides.Range().Copy()
     Start-Sleep -Milliseconds 250
+  } catch {
+    Log "  ! 파일을 읽지 못해 건너뜁니다: $(Split-Path $srcPath -Leaf) ($($_.Exception.Message))"
+    return 0
   } finally {
-    $src.Close()  # closed before pasting: the clipboard keeps the copied slides
+    # Closed before pasting: the clipboard keeps the copied slides.
+    if ($src) { try { $src.Close() } catch {} }
   }
 
   $before = $prs.Slides.Count
@@ -266,6 +276,9 @@ try {
   foreach ($step in $job.steps) {
     Progress $step.name
     Log ("- step: " + $step.name + " (" + $step.op + ")")
+    # A failing step is reported and skipped: a deck missing one block beats no
+    # deck at all, and the log says exactly what to fix by hand.
+    try {
     switch ($step.op) {
       "duplicateFill" {
         $texts = @($step.texts)
@@ -323,6 +336,9 @@ try {
         }
       }
       default { Log "  ! unknown op: $($step.op)" }
+    }
+    } catch {
+      Log "  ! 단계 실패, 건너뜁니다: $($step.name) — $($_.Exception.Message)"
     }
   }
 

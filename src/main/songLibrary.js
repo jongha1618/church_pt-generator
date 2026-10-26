@@ -146,6 +146,38 @@ function mtimeOf(entry) {
   return entry._mtime;
 }
 
+const ZIP_MAGIC = "504b0304"; // .pptx — an OOXML zip
+const OLE_MAGIC = "d0cf11e0"; // .ppt  — a legacy compound file
+const MIN_DECK_BYTES = 1024; // nothing smaller can hold a single slide
+
+/**
+ * Does this file actually hold a deck? The libraries contain the odd empty or
+ * truncated leftover, and PowerPoint throws "Presentation contains no slides"
+ * on those. Checked lazily (header bytes only) so it costs nothing until a file
+ * is about to be chosen.
+ */
+function isUsable(entry) {
+  if (entry._usable !== undefined) return entry._usable;
+  let ok = false;
+  try {
+    if (fs.statSync(entry.file).size > MIN_DECK_BYTES) {
+      const fd = fs.openSync(entry.file, "r");
+      const head = Buffer.alloc(4);
+      try {
+        fs.readSync(fd, head, 0, 4, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const magic = head.toString("hex");
+      ok = entry.pptx ? magic === ZIP_MAGIC : magic === OLE_MAGIC || magic === ZIP_MAGIC;
+    }
+  } catch {
+    ok = false;
+  }
+  entry._usable = ok;
+  return ok;
+}
+
 /**
  * Later-listed candidates only win on a strictly better score.
  *
@@ -220,18 +252,41 @@ function scoreEntry(entry, q) {
   return best;
 }
 
+/** Order candidates best-first using the same rules as better(). */
+function rank(cands) {
+  return cands.sort((a, b) => (better(a, b) ? 1 : better(b, a) ? -1 : 0));
+}
+
+/**
+ * The best candidate whose file is actually usable. An empty or truncated file
+ * is skipped in favour of the next best file for the same title, and the skip is
+ * reported so the broken file can be cleaned up.
+ */
+function firstUsable(cands) {
+  const ordered = rank(cands);
+  for (let i = 0; i < ordered.length; i++) {
+    if (!isUsable(ordered[i].entry)) continue;
+    if (i > 0) {
+      const skipped = ordered.slice(0, i).map((c) => c.entry.name).join(", ");
+      return { ...ordered[i], note: `비어 있는 파일을 건너뜀: ${skipped}` };
+    }
+    return ordered[i];
+  }
+  return null;
+}
+
 /** Best-scoring entry for a title; earlier indexes are the preferred library. */
 function bestByTitle(indexes, title) {
   const q = normalize(title);
   if (!q) return null;
-  let win = null;
-  indexes.forEach((index, rank) => {
+  const cands = [];
+  indexes.forEach((index, rankOfIndex) => {
     for (const entry of index) {
       const score = scoreEntry(entry, q);
-      if (score && better(win, { entry, score, rank })) win = { entry, score, rank };
+      if (score) cands.push({ entry, score, rank: rankOfIndex });
     }
   });
-  return win;
+  return firstUsable(cands);
 }
 
 /** Best praise-library file for a printed title, or null. */
@@ -240,15 +295,13 @@ function matchPraise(index, title) {
   return win ? win.entry : null;
 }
 
-/** Every hymn file carrying this 찬송가 number — newest, then cleanest name. */
+/** Every hymn file carrying this 찬송가 number — newest usable, then cleanest. */
 function bestByNumber(index, num) {
-  let win = null;
+  const cands = [];
   for (const entry of index) {
-    if (entry.num !== num) continue;
-    const cand = { entry, score: 1, rank: 0 };
-    if (better(win, cand)) win = cand;
+    if (entry.num === num) cands.push({ entry, score: 1, rank: 0 });
   }
-  return win;
+  return firstUsable(cands);
 }
 
 /** Best hymn file — by number when the bulletin printed one, else by title. */
@@ -275,14 +328,16 @@ function findSong(item, hymnIndex, praiseIndex) {
     : bestByTitle([praiseIndex, hymnIndex], title);
 
   if (item && item.num) {
+    // Keep any note the candidate already carries (e.g. a skipped empty file).
+    const withNote = (c, extra) => ({ ...c, note: [c.note, extra].filter(Boolean).join(" / ") });
     const byNum = bestByNumber(hymnIndex, item.num);
-    if (!byNum) return byTitle ? { ...byTitle, note: `찬송가 ${item.num}장 파일 없음 — 제목으로 찾음` } : null;
+    if (!byNum) return byTitle ? withNote(byTitle, `찬송가 ${item.num}장 파일 없음 — 제목으로 찾음`) : null;
     if (!q) return byNum;
     if (scoreEntry(byNum.entry, q) >= 70) return byNum; // number and title agree
     if (byTitle && byTitle.score >= 80) {
-      return { ...byTitle, note: `주보의 ${item.num}장과 제목이 달라 제목 기준으로 찾음` };
+      return withNote(byTitle, `주보의 ${item.num}장과 제목이 달라 제목 기준으로 찾음`);
     }
-    return { ...byNum, note: `제목(${title})과 파일 제목이 다름 — 번호 기준` };
+    return withNote(byNum, `제목(${title})과 파일 제목이 다름 — 번호 기준`);
   }
   return byTitle;
 }
