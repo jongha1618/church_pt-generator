@@ -88,8 +88,18 @@ async function init() {
   $("introAnnouncements").value = blocksToText(DEFAULT_INTRO);
   $("closingAnnouncements").value = blocksToText(DEFAULT_CLOSING);
 
+  applyBlessingSong();
   renderAllChips();
   bindEvents();
+}
+
+/**
+ * 축복송 (축도 직후) is the same song all year, so it lives in Settings rather
+ * than the 주보 — but show it as a chip so it is visible and can be swapped for
+ * this week. Whatever the chips say is what gets inserted.
+ */
+function applyBlessingSong() {
+  state.songs.closingPraise = config.blessingSongPath ? [config.blessingSongPath] : [];
 }
 
 // ---------- settings ---------------------------------------------------------
@@ -400,6 +410,8 @@ function bindEvents() {
     if (pf) pf.onclick = () => pickSongFiles(key);
     const ah = g.querySelector(".add-hymn");
     if (ah) ah.onclick = () => { const inp = g.querySelector(".hymn-input"); addHymn(key, inp.value); inp.value = ""; };
+    const rb = g.querySelector(".reset-blessing");
+    if (rb) rb.onclick = () => { applyBlessingSong(); renderChips(key); };
   });
 }
 

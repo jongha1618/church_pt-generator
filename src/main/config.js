@@ -24,9 +24,10 @@ const DEFAULTS = {
   // and an anchor, so the recited text is inserted from this file every week.
   creedSongPath:
     "G:\\.shortcut-targets-by-id\\0B6xGXJiLbl4SRWlkX3Y4RGJoNWM\\ppt\\1한영찬송\\0사도신경-한영.pptx",
-  // 축복송 (blessing song, inserted after the benediction). Changes yearly, so
-  // it is set in Settings; used when no per-week 예배 후 경배와 찬양 is uploaded.
-  blessingSongPath: "",
+  // 축복송 (blessing song), inserted right after the 축도. Changes yearly, so it
+  // is set in Settings; the UI pre-fills it so it is visible and replaceable.
+  blessingSongPath:
+    "G:\\.shortcut-targets-by-id\\0B6xGXJiLbl4SRWlkX3Y4RGJoNWM\\ppt\\2경배와찬양-악보\\ㅇ\\여호와는 너에게 복을 주시기를 원하며(하나님의 약속) - 2.pptx",
   // Bible text database root: {translation}\bookN.txt
   bibleDir: "C:\\church\\Bible.text",
   // Where the 5 output files are written.

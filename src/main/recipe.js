@@ -77,15 +77,16 @@ function blankService(config) {
     introAnnouncements: DEFAULT_INTRO_ANNOUNCEMENTS.slice(),
     announcements: [],
     closingAnnouncements: DEFAULT_CLOSING_ANNOUNCEMENTS.slice(),
-    // song .pptx files to insert (absolute paths). praiseWorship/closingPraise
-    // are usually uploaded/picked each week; hymns picked from the 찬송가 library.
+    // song .pptx files to insert (absolute paths). The 주보 fills the weekly
+    // slots; 축복송 is the same all year, so it starts from Settings — the user
+    // sees it as a chip and can swap it for this week.
     songs: {
       praiseWorship1: [],
       praiseWorship: [],
       openingHymn: [],
       closingHymn1: [],
       closingHymn: [],
-      closingPraise: [],
+      closingPraise: config.blessingSongPath ? [config.blessingSongPath] : [],
     },
   };
 }
@@ -304,14 +305,14 @@ function buildJob(service, config, verses) {
     });
   }
 
-  // 8. 축도 후 축복송 / 예배 후 경배와 찬양. Use the per-week upload if provided,
-  //    otherwise fall back to the annual 축복송 configured in Settings.
-  const closingPraiseFiles =
-    service.songs.closingPraise && service.songs.closingPraise.length
-      ? service.songs.closingPraise
-      : config.blessingSongPath
-      ? [config.blessingSongPath]
-      : [];
+  // 8. 축도 후 축복송 / 예배 후 경배와 찬양. The UI pre-fills this from Settings and
+  //    is authoritative, so an explicitly empty list means "no 축복송 this week".
+  //    The Settings fallback only applies when the caller omits the key entirely.
+  const closingPraiseFiles = service.songs.closingPraise
+    ? service.songs.closingPraise
+    : config.blessingSongPath
+    ? [config.blessingSongPath]
+    : [];
   if (closingPraiseFiles.length) {
     steps.push({
       op: "insertPptx",

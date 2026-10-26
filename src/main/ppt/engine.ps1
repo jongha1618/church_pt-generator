@@ -29,6 +29,7 @@ $ppSaveAsOpenXMLPresentation = 24
 $ppShapeFormatPNG = 2
 $ppRelativeToSlide = 1
 $ppAlertsNone = 1
+$ppViewNormal = 9
 
 $job = Get-Content -Raw -LiteralPath $JobPath -Encoding UTF8 | ConvertFrom-Json
 
@@ -112,21 +113,45 @@ function Duplicate-Slide($prs, [int]$index, [int]$copies) {
 }
 
 # Insert every slide of $srcPath after slide $afterIndex. Returns inserted count.
+#
+# Slides.Paste applies the DESTINATION design, which silently destroys song and
+# 사도신경 slides: their background picture is dropped and the white lyric text
+# ends up invisible on white. The ribbon's "Keep Source Formatting" paste is the
+# only call that carries the source background over, and it acts on the active
+# window's selection — hence the Select() below.
 function Insert-Pptx($pp, $prs, [string]$srcPath, [int]$afterIndex) {
   if (-not (Test-Path -LiteralPath $srcPath)) {
     Log "  ! song file missing, skipping: $srcPath"
     return 0
   }
   $src = $pp.Presentations.Open($srcPath, $true, $false, $false) # ReadOnly, notUntitled, noWindow
-  $count = $src.Slides.Count
   try {
     $src.Slides.Range().Copy()
     Start-Sleep -Milliseconds 250
-    [void]$prs.Slides.Paste($afterIndex + 1)
   } finally {
-    $src.Close()
+    $src.Close()  # closed before pasting: the clipboard keeps the copied slides
   }
-  return $count
+
+  $before = $prs.Slides.Count
+  $anchor = [Math]::Max(1, $afterIndex)
+  try {
+    $prs.Windows.Item(1).Activate()
+    $prs.Slides.Item($anchor).Select()
+    $pp.CommandBars.ExecuteMso("PasteSourceFormatting")
+    Start-Sleep -Milliseconds 400
+  } catch {
+    Log "  ! PasteSourceFormatting failed ($($_.Exception.Message))"
+  }
+
+  $added = $prs.Slides.Count - $before
+  if ($added -le 0) {
+    # Fall back to the plain paste so the deck is at least complete; the slides
+    # may need their background fixed by hand.
+    Log "  ! keep-source-formatting paste added nothing, falling back (배경이 빠질 수 있음)"
+    [void]$prs.Slides.Paste($afterIndex + 1)
+    $added = $prs.Slides.Count - $before
+  }
+  return $added
 }
 
 function Format-Verse([string]$fmt, $v, [string]$text) {
@@ -187,6 +212,17 @@ function Export-Step($prs, $exp) {
   }
   if ($idxs.Count -eq 0) { Log "  (no slides matched '$marker')"; return }
 
+  # Shapes.SelectAll only works while the slide pane itself has focus. The
+  # keep-source-formatting paste leaves focus on the thumbnail pane, so put the
+  # window back into Normal view with pane 2 (the slide) active before exporting.
+  $win = $null
+  if ($exp.op -ne "exportSlides") {
+    $win = $prs.Windows.Item(1)
+    try { $win.Activate() } catch {}
+    try { $win.ViewType = $ppViewNormal } catch {}
+    try { $win.Panes.Item(2).Activate() } catch {}
+  }
+
   foreach ($n in $idxs) {
     $idx = [int]$n
     $slide = $prs.Slides.Item($idx)
@@ -197,7 +233,6 @@ function Export-Step($prs, $exp) {
     } else {
       $w = [int]([double]$prs.PageSetup.SlideWidth * 1.563)
       $h = [int]([double]$prs.PageSetup.SlideHeight * 1.563)
-      $win = $prs.Windows.Item(1)
       $win.View.GotoSlide($idx)
       $slide.Shapes.SelectAll()
       $win.Selection.ShapeRange.Export($file, $ppShapeFormatPNG, $w, $h, $ppRelativeToSlide)

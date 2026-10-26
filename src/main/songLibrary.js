@@ -253,14 +253,17 @@ function findSong(item, hymnIndex, praiseIndex) {
   return byTitle;
 }
 
-/** The deck's song slots, in service order. 1부 and 2부 have separate blocks. */
+/**
+ * The slots the bulletin can fill, in service order. 1부 and 2부 have separate
+ * blocks. closingPraise (축복송) is deliberately absent: it is the same song all
+ * year, set in Settings rather than printed in the 주보.
+ */
 const SONG_SLOTS = [
   "praiseWorship1",
   "praiseWorship",
   "openingHymn",
   "closingHymn1",
   "closingHymn",
-  "closingPraise",
 ];
 
 // parsed key → template slot. 성찬식 찬송 shares the opening-hymn anchor
