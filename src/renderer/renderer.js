@@ -11,10 +11,32 @@ const DEFAULT_CLOSING = [
   "주님과 동행하시는\n복된 한 주간 되시길 바라며\n다음 예배 때 뵙겠습니다.",
 ];
 
+// Everything the Settings dialog edits, in dialog order.
+const SETTING_KEYS = [
+  "templatePath",
+  "hymnDir",
+  "praiseDir",
+  "blessingSongPath",
+  "bibleDir",
+  "outputDir",
+  "bibleKorean",
+  "bibleEnglish",
+  "creedSongPath",
+  "defaultPastor",
+];
+
 let config = {};
 let hymns = [];
 const state = {
-  songs: { praiseWorship: [], openingHymn: [], closingHymn: [], closingPraise: [] },
+  songs: {
+    praiseWorship1: [],
+    praiseWorship: [],
+    openingHymn: [],
+    closingHymn1: [],
+    closingHymn: [],
+    closingPraise: [],
+  },
+  unmatched: [], // songs printed in the 주보 with no file in the libraries
 };
 
 const $ = (id) => document.getElementById(id);
@@ -61,8 +83,8 @@ async function init() {
 
   // default form values
   $("serviceTitle").value = config.serviceTitle || "주일 예배";
-  $("preacher").value = "김형길 목사";
-  $("benediction").value = "김형길 목사";
+  $("preacher").value = config.defaultPastor || "김형길 목사";
+  $("benediction").value = config.defaultPastor || "김형길 목사";
   $("introAnnouncements").value = blocksToText(DEFAULT_INTRO);
   $("closingAnnouncements").value = blocksToText(DEFAULT_CLOSING);
 
@@ -73,7 +95,7 @@ async function init() {
 // ---------- settings ---------------------------------------------------------
 
 function fillSettings() {
-  for (const k of ["templatePath","hymnDir","praiseDir","blessingSongPath","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
+  for (const k of SETTING_KEYS) {
     const el = $("set_" + k);
     if (el) el.value = config[k] || "";
   }
@@ -81,7 +103,7 @@ function fillSettings() {
 
 async function saveSettings() {
   const patch = {};
-  for (const k of ["templatePath","hymnDir","praiseDir","blessingSongPath","bibleDir","outputDir","bibleKorean","bibleEnglish"]) {
+  for (const k of SETTING_KEYS) {
     patch[k] = $("set_" + k).value.trim();
   }
   config = await window.api.saveConfig(patch);
@@ -91,24 +113,56 @@ async function saveSettings() {
 
 // ---------- bulletin ---------------------------------------------------------
 
-async function pickPdf() {
-  const p = await window.api.pickFile({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
-  if (!p) return;
-  $("pdfName").textContent = p.split(/[\\/]/).pop();
+/**
+ * Load a 주보 PDF: parse it, fill the whole form, and resolve every song it
+ * lists to a library file. Returns true when the bulletin was read.
+ */
+async function loadBulletin(pdfPath) {
+  $("pdfName").textContent = pdfPath.split(/[\\/]/).pop();
   $("pdfName").classList.remove("muted");
-  const res = await window.api.parseBulletin(p);
+  $("songStatus").textContent = "주보 분석 중…";
+  const res = await window.api.parseBulletin(pdfPath);
   if (!res.ok) {
     $("pdfName").textContent = "파싱 실패: " + res.error;
-    return;
+    $("songStatus").textContent = "";
+    return false;
   }
   $("rawText").textContent = res.rawText || "";
   applyParsed(res.service, res.hints);
+  applySongs(res);
+  return true;
+}
+
+function pickPdfPath() {
+  return window.api.pickFile({
+    filters: [{ name: "주보 PDF", extensions: ["pdf"] }],
+    defaultPath: config.bulletinDir,
+  });
+}
+
+async function pickPdf() {
+  const p = await pickPdfPath();
+  if (!p) return;
+  await loadBulletin(p);
+}
+
+// 주보 하나만 넣으면 끝: parse → fill → match songs → generate.
+async function autoFromPdf() {
+  const p = await pickPdfPath();
+  if (!p) return;
+  if (!(await loadBulletin(p))) return;
+  if (!$("date").value) {
+    alert("주보에서 예배 날짜를 찾지 못했습니다. 날짜를 입력한 뒤 생성하세요.");
+    return;
+  }
+  await generate();
 }
 
 function applyParsed(s, hints) {
   if (!s) return;
   const setIf = (id, val) => { if (val) $(id).value = val; };
   setIf("date", s.date);
+  setIf("serviceTitle", s.serviceTitle);
   setIf("sermonTitle", s.sermonTitle);
   setIf("preacher", s.preacher);
   setIf("prayer", s.prayer);
@@ -132,14 +186,33 @@ function applyParsed(s, hints) {
   if (s.announcements && s.announcements.length) {
     $("announcements").value = blocksToText(s.announcements);
   }
-  // pre-fill hymn candidates as chips in opening hymn (user can move/remove)
-  if (hints && hints.hymnNumbers && hints.hymnNumbers.length) {
-    hints.hymnNumbers.forEach((n) => {
-      const h = hymns.find((x) => x.num === n);
-      if (h) state.songs.openingHymn.push(h.file);
-    });
-    renderChips("openingHymn");
+}
+
+/**
+ * Replace the song chips with what the bulletin listed, and report the songs
+ * whose file could not be found so the user can add them by hand.
+ */
+function applySongs(res) {
+  const resolved = res.resolvedSongs || {};
+  for (const key of Object.keys(state.songs)) {
+    if (resolved[key]) state.songs[key] = resolved[key].slice();
   }
+  renderAllChips();
+
+  const box = $("songStatus");
+  const matched = res.matched || [];
+  const unmatched = res.unmatched || [];
+  state.unmatched = unmatched;
+  box.innerHTML = "";
+  const line = (cls, text) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.textContent = text;
+    box.appendChild(d);
+  };
+  line("ok", `주보의 찬양 ${matched.length + unmatched.length}곡 중 ${matched.length}곡을 찾았습니다.`);
+  matched.filter((m) => m.note).forEach((m) => line("warn", `※ ${m.label} → ${m.name} (${m.note})`));
+  unmatched.forEach((m) => line("warn", `✗ 파일 없음: ${m.label} — 직접 추가하세요`));
 }
 
 // ---------- bible preview ----------------------------------------------------
@@ -247,6 +320,7 @@ async function generate() {
   $("results").classList.add("hidden");
   $("genStatus").textContent = "생성 중…";
   $("btnGenerate").disabled = true;
+  $("btnAuto").disabled = true;
 
   const unsub = window.api.onGenerateLog((line) => {
     $("log").textContent += line + "\n";
@@ -264,6 +338,7 @@ async function generate() {
   } finally {
     unsub && unsub();
     $("btnGenerate").disabled = false;
+    $("btnAuto").disabled = false;
   }
 }
 
@@ -276,6 +351,17 @@ function showResults(res) {
     a.onclick = () => window.api.openPath(p);
     box.appendChild(a);
   };
+  // Songs the libraries did not have never made it into the deck — say so here,
+  // where the user is looking after a one-click run.
+  if (state.unmatched.length) {
+    const warn = document.createElement("div");
+    warn.className = "warn";
+    warn.textContent =
+      "찬양 파일을 찾지 못해 빠진 곡: " +
+      state.unmatched.map((m) => m.label).join(", ") +
+      " — 직접 추가 후 다시 생성하세요.";
+    box.appendChild(warn);
+  }
   add("PPTX", res.outPptx);
   add("OSZ", res.oszPath);
   add("노트", res.notesPath);
@@ -288,6 +374,7 @@ function showResults(res) {
 
 function bindEvents() {
   $("btnPickPdf").onclick = pickPdf;
+  $("btnAuto").onclick = autoFromPdf;
   $("btnPreviewBible").onclick = previewBible;
   $("btnGenerate").onclick = generate;
   $("btnOpenOut").onclick = () => window.api.openPath(config.outputDir);

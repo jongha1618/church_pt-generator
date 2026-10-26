@@ -12,19 +12,30 @@
 
 ## 동작 방식
 
-- **주보 PDF** 를 불러오면 날짜·설교제목·성경본문·대표기도·광고 등을 자동 추출해 폼에 채웁니다. (추출은 참고용이며, 확인/수정 후 생성)
+**⚡ 주보로 바로 생성** 버튼 하나면 끝입니다. 주보 PDF 를 고르면 앱이
+
+1. 날짜·예배명·설교제목/설교자·성경본문·대표기도·축도·봉사위원·성가대·광고를 추출하고,
+2. 예배 순서에 적힌 **찬양 제목을 찬송가/경배와찬양 라이브러리에서 찾아** 1부·2부 자리에 넣고,
+3. 성경 본문을 한/영 대역으로 조회해,
+4. `C:\church\onlineservice\YYYY-MMDD-Sunday.pptx` 를 바로 만듭니다.
+
+찾지 못한 곡은 화면에 목록으로 표시되므로 직접 추가한 뒤 다시 생성하면 됩니다.
+모든 추출 결과는 폼에서 수정할 수 있고, **주보만 불러오기** 로 확인 후 생성할 수도 있습니다.
+
 - **성경 본문** 은 앱에 연결된 성경 DB(`C:\church\Bible.text`)에서 한/영 대역으로 자동 삽입됩니다.
-- **찬송가** 는 라이브러리(`C:\church\찬송가`)에서 번호로 선택해 악보 슬라이드가 삽입됩니다.
-- **찬양과 경배 / 경배와 찬양** 은 다른 분이 보내준 PPT 파일을 업로드하면 해당 위치에 삽입됩니다.
+- **찬송가 / 경배와 찬양** 은 교회 공용 드라이브의 라이브러리에서 제목·번호로 자동 매칭됩니다.
+  주보가 통일찬송가 번호를 쓴 경우(예: "찬 48장. 만유의 주재") 제목을 우선해 찾습니다.
+- **사도신경** 은 매주 같은 파일을 삽입합니다 (설정에서 경로 변경 가능).
 - 실제 PPT 조립은 설치된 **Microsoft PowerPoint** 를 COM 자동화로 제어해 이뤄집니다 (서식·이미지 100% 보존).
 
 ## 준비물 (필수)
 
 - **Windows + Microsoft PowerPoint 설치**
-- 아래 자료 폴더를 `C:\church\` 아래에 복사 (USB 등으로 공유)
-  - `C:\church\Bible.text\` (성경 DB: 개역개정, ESV …)
-  - `C:\church\찬송가\` (`NNN - 제목.pptx` + 동명의 `.xml`)
-  - `C:\church\경배와 찬양\` (CCM 악보 PPT)
+- 성경 DB `C:\church\Bible.text\` (개역개정, ESV …)
+- 찬양 라이브러리 — 교회 공용 Google Drive (`G:`) 의
+  - `…\ppt\1새찬송가\` (`NNN - 제목.pptx`)
+  - `…\ppt\2경배와찬양-악보\` (초성 폴더별 CCM 악보 PPT)
+  - 폴더를 여러 개 쓰려면 설정에서 `;` 로 구분해 입력합니다.
 - 예배 템플릿 `2026-Sunday-Template.pptx` (기본 경로는 Dropbox 템플릿 폴더 — 설정에서 변경 가능)
 
 경로는 앱의 **⚙️ 설정** 에서 언제든 바꿀 수 있습니다.
@@ -50,6 +61,7 @@ src/
     preload.js         contextBridge API
     config.js          경로 설정 (userData/config.json)
     bulletinParser.js  주보 PDF → 필드 추출
+    songLibrary.js     찬송가/경배와찬양 라이브러리 색인 + 제목 매칭
     bible.js           성경 DB 리더 (BOM 감지, 66권, 한/영 대역)
     osz.js             OpenLyrics / OSZ 작성기
     recipe.js          고정 예배 레시피(마커 기반) → job 생성
@@ -66,12 +78,14 @@ src/
 | 마커 | 용도 |
 |---|---|
 | `NOTES_intro_announcement` | 예배 전 안내 (복제+채움) |
-| `MK_praise_worship2` | 찬양과 경배(2부) PPT 삽입 |
-| `MK_announcement:repeat` | 주일 광고 (복제+채움) |
+| `MK_ apostles_creed` | 사도신경 PPT 삽입 |
+| `MK_praise_worship1` / `MK_praise_worship2` | 찬양과 경배 1부 / 2부 PPT 삽입 |
+| `MK_announcement:no-repeat` | 주일 광고 첫 장 (♥ 알립니다) |
+| `MK_announcement:repeat` | 주일 광고 나머지 (복제+채움) |
 | `MK_opening_hymn` | 말씀 전 찬양 삽입 |
 | `MK_special_praise2:repeat` | 성가대 가사 (복제+채움) |
-| `MK_bible_verse:repeat` | 성경 절 (복제+채움) |
-| `MK_closing_hymn2` | 말씀 후 찬양 삽입 |
+| `MK_bible_verse:repeat` | 성경 절 (복제+채움 — 화면용·투명용 블록 모두) |
+| `MK_closing_hymn1` / `MK_closing_hymn2` | 말씀 후 찬양 1부 / 2부 삽입 |
 | `MK_closing_praise` | 예배 후 경배와 찬양 삽입 |
 | `MK_closing_announcement:repeat` | 예배 후 광고 |
 | `NOTES_intro_export` / `MK_transparent_titles` / `MK_transparent_bible_verse` / `MK_closing_announcement` | 이미지 export 대상 |

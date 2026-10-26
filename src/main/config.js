@@ -15,9 +15,15 @@ const DEFAULTS = {
   // The PowerPoint template that contains the {token} placeholders + anchor slides.
   templatePath: "C:\\Users\\Jongha Jin\\Dropbox\\EMC\\OnlineService\\template\\2026-Sunday-Template.pptx",
   // Hymn library: one pptx per hymn, named "NNN - title.pptx".
-  hymnDir: "C:\\church\\찬송가",
+  // Both song libraries live on the church's shared Google Drive; either field
+  // may list several roots separated by ';'.
+  hymnDir: "G:\\.shortcut-targets-by-id\\0B6xGXJiLbl4SRWlkX3Y4RGJoNWM\\ppt\\1새찬송가",
   // Praise & worship (경배와 찬양) library, organized by Korean initial.
-  praiseDir: "C:\\church\\경배와 찬양",
+  praiseDir: "G:\\.shortcut-targets-by-id\\0B6xGXJiLbl4SRWlkX3Y4RGJoNWM\\ppt\\2경배와찬양-악보",
+  // 사도신경 (Apostles' Creed) slides. The template only carries the title slide
+  // and an anchor, so the recited text is inserted from this file every week.
+  creedSongPath:
+    "G:\\.shortcut-targets-by-id\\0B6xGXJiLbl4SRWlkX3Y4RGJoNWM\\ppt\\1한영찬송\\0사도신경-한영.pptx",
   // 축복송 (blessing song, inserted after the benediction). Changes yearly, so
   // it is set in Settings; used when no per-week 예배 후 경배와 찬양 is uploaded.
   blessingSongPath: "",
@@ -25,12 +31,16 @@ const DEFAULTS = {
   bibleDir: "C:\\church\\Bible.text",
   // Where the 5 output files are written.
   outputDir: "C:\\church\\onlineservice",
+  // Where the weekly 주보 PDF lands (the file dialog opens here). Empty = Downloads.
+  bulletinDir: "",
   // Translations used on bilingual scripture slides.
   bibleKorean: "개역개정",
   bibleEnglish: "ESV",
   // Church identity used in notes / titles.
   churchName: "임마누엘 선교교회",
   serviceTitle: "주일 예배",
+  // Preacher/benediction used when the bulletin names nobody (the 담임목사).
+  defaultPastor: "김형길 목사",
 };
 
 let cachedPath = null;

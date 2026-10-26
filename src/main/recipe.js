@@ -13,14 +13,16 @@
  *   NOTES_intro_announcement   the online-worship notice slides (duplicate+fill)
  *   NOTES_intro_export         slides exported to 00-Announce (JPEG)
  *   MK_transparent_titles      title/divider slides exported to 01-Titles (PNG)
- *   MK_praise_worship2         insert 2부 찬양과 경배 song .pptx here
+ *   MK_ apostles_creed         insert the 사도신경 slides here (note the space)
+ *   MK_praise_worship1/2       insert 1부 / 2부 찬양과 경배 song .pptx here
  *   MK_praise_worship2_separator  divider duplicated between songs
+ *   MK_announcement:no-repeat  the "♥ 알립니다" lead announcement slide
  *   MK_announcement:repeat     the announcement slide duplicated per item
  *   MK_opening_hymn            insert 말씀 전 찬양 song .pptx here
  *   MK_special_praise2:repeat  choir/특송 lyric slide duplicated per line
  *   MK_bible_verse:repeat      scripture slide duplicated per verse
  *   MK_transparent_bible_verse slides exported to 02-Verse (PNG)
- *   MK_closing_hymn2           insert 말씀 후 찬양 song .pptx here
+ *   MK_closing_hymn1/2         insert 1부 / 2부 말씀 후 찬양 song .pptx here
  *   MK_closing_praise          insert 예배 후 경배와찬양 song .pptx here
  *   MK_closing_announcement:repeat  closing notice slide duplicated per item
  *   MK_closing_announcement    slides exported to 04-Ending (JPEG)
@@ -49,9 +51,9 @@ function blankService(config) {
     date: "", // ISO yyyy-mm-dd
     serviceTitle: config.serviceTitle || "주일 예배",
     sermonTitle: "",
-    preacher: "김형길 목사",
+    preacher: config.defaultPastor || "김형길 목사",
     prayer: "", // 대표기도
-    benediction: "김형길 목사", // 축도
+    benediction: config.defaultPastor || "김형길 목사", // 축도
     // 봉사위원 (this week)
     lunch: "",
     serving: "",
@@ -78,8 +80,10 @@ function blankService(config) {
     // song .pptx files to insert (absolute paths). praiseWorship/closingPraise
     // are usually uploaded/picked each week; hymns picked from the 찬송가 library.
     songs: {
+      praiseWorship1: [],
       praiseWorship: [],
       openingHymn: [],
+      closingHymn1: [],
       closingHymn: [],
       closingPraise: [],
     },
@@ -199,22 +203,44 @@ function buildJob(service, config, verses) {
     });
   }
 
-  // 2. 찬양과 경배 (2부) song slides.
+  // 2. 사도신경 — recited every Sunday; the template only has the title slide.
+  if (config.creedSongPath) {
+    steps.push({
+      op: "insertPptx",
+      name: "사도신경",
+      marker: "apostles_creed", // the template's marker reads "MK_ apostles_creed"
+      files: [config.creedSongPath],
+    });
+  }
+
+  // 3. 찬양과 경배 — the deck serves both services, so 1부 and 2부 each get their
+  //    own block.
+  if (service.songs.praiseWorship1 && service.songs.praiseWorship1.length) {
+    steps.push({
+      op: "insertPptx",
+      name: "찬양과 경배 (1부)",
+      marker: "MK_praise_worship1",
+      separatorMarker: "MK_praise_worship1_separator",
+      files: service.songs.praiseWorship1,
+    });
+  }
   if (service.songs.praiseWorship && service.songs.praiseWorship.length) {
     steps.push({
       op: "insertPptx",
-      name: "찬양과 경배",
+      name: "찬양과 경배 (2부)",
       marker: "MK_praise_worship2",
       separatorMarker: "MK_praise_worship2_separator",
       files: service.songs.praiseWorship,
     });
   }
 
-  // 3. 주일 광고 (duplicate + fill).
+  // 4. 주일 광고. The first item goes on the "♥ 알립니다" lead slide, the rest on
+  //    duplicates of the repeat slide.
   if (service.announcements && service.announcements.length) {
     steps.push({
       op: "duplicateFill",
       name: "주일 광고",
+      leadMarker: "MK_announcement:no-repeat",
       repeatMarker: "MK_announcement:repeat",
       find: "{announcement}",
       texts: resolve(service.announcements),
@@ -259,11 +285,20 @@ function buildJob(service, config, verses) {
     });
   }
 
-  // 7. 말씀 후 찬양 (closing hymn) song slides.
+  // 7. 말씀 후 찬양 (closing hymn), again one block per service.
+  if (service.songs.closingHymn1 && service.songs.closingHymn1.length) {
+    steps.push({
+      op: "insertPptx",
+      name: "말씀 후 찬양 (1부)",
+      marker: "MK_closing_hymn1",
+      separatorMarker: "MK_closing_hymn1_separator",
+      files: service.songs.closingHymn1,
+    });
+  }
   if (service.songs.closingHymn && service.songs.closingHymn.length) {
     steps.push({
       op: "insertPptx",
-      name: "말씀 후 찬양",
+      name: "말씀 후 찬양 (2부)",
       marker: "MK_closing_hymn2",
       files: service.songs.closingHymn,
     });

@@ -125,3 +125,9 @@ details.raw summary { cursor: pointer; color: var(--brand); font-size: 12px; }
 .setrow label { flex-direction: row; color: var(--ink); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 code { background: #eef3f8; padding: 1px 5px; border-radius: 4px; }
+
+/* Song auto-match report under the bulletin picker. */
+.songstatus { margin-top: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.songstatus .ok { color: #1f7a4d; }
+.songstatus .warn { color: #b26a00; }
+.results .warn { color: #b26a00; font-size: 12px; }

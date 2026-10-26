@@ -73,15 +73,6 @@ function Find-SlideIndex($prs, [string]$marker) {
   return -1
 }
 
-function Find-AllSlideIndexes($prs, [string]$marker) {
-  $r = @()
-  for ($i = 1; $i -le $prs.Slides.Count; $i++) {
-    $notes = Get-Notes $prs.Slides.Item($i)
-    if ($notes.Contains($marker)) { $r += $i }
-  }
-  return , $r
-}
-
 function Replace-InShape($shape, [string]$from, [string]$to) {
   if (-not $shape.HasTextFrame) { return }
   try {
@@ -229,9 +220,24 @@ try {
     Log ("- step: " + $step.name + " (" + $step.op + ")")
     switch ($step.op) {
       "duplicateFill" {
+        $texts = @($step.texts)
+        # Some blocks have a distinct first slide (the "♥ 알립니다" announcement).
+        # Fill it before duplicating, while slide indexes are still stable.
+        if ($step.leadMarker -and $texts.Count -ge 1) {
+          $lead = Find-SlideIndex $prs $step.leadMarker
+          if ($lead -ge 0) {
+            Replace-InSlide $prs.Slides.Item($lead) $step.find $texts[0]
+            Log "  filled lead slide at index $lead"
+            if ($texts.Count -gt 1) { $texts = @($texts[1..($texts.Count - 1)]) } else { $texts = @() }
+          }
+        }
         $idx = Find-SlideIndex $prs $step.repeatMarker
         if ($idx -lt 0) { Log "  ! marker not found: $($step.repeatMarker) (skip)"; break }
-        $texts = @($step.texts)
+        if ($texts.Count -eq 0) {
+          # Nothing left for the repeat slide — clear its placeholder token.
+          Replace-InSlide $prs.Slides.Item($idx) $step.find ""
+          break
+        }
         $n = $texts.Count
         if ($n -gt 1) { Duplicate-Slide $prs $idx ($n - 1) }
         for ($i = 0; $i -lt $n; $i++) {
@@ -249,15 +255,24 @@ try {
         }
       }
       "bibleVerses" {
-        $idx = Find-SlideIndex $prs $step.repeatMarker
-        if ($idx -lt 0) { Log "  ! marker not found: $($step.repeatMarker) (skip)"; break }
         $verses = @($step.verses)
         $n = $verses.Count
-        if ($n -gt 1) { Duplicate-Slide $prs $idx ($n - 1) }
-        for ($i = 0; $i -lt $n; $i++) {
-          Fill-VerseSlide $prs.Slides.Item($idx + $i) $verses[$i]
+        if ($n -eq 0) { break }
+        # The template carries the scripture twice — the on-screen block and the
+        # transparent block exported to 02-Verse — so fill every marked block.
+        # Scanned bottom-up, so duplicating one block cannot shift those above it.
+        $idxs = @()
+        for ($i = $prs.Slides.Count; $i -ge 1; $i--) {
+          if ((Get-Notes $prs.Slides.Item($i)).Contains([string]$step.repeatMarker)) { $idxs += [int]$i }
         }
-        Log "  filled $n verse slide(s) at index $idx"
+        if ($idxs.Count -eq 0) { Log "  ! marker not found: $($step.repeatMarker) (skip)"; break }
+        foreach ($idx in $idxs) {
+          if ($n -gt 1) { Duplicate-Slide $prs $idx ($n - 1) }
+          for ($i = 0; $i -lt $n; $i++) {
+            Fill-VerseSlide $prs.Slides.Item($idx + $i) $verses[$i]
+          }
+          Log "  filled $n verse slide(s) at index $idx"
+        }
       }
       default { Log "  ! unknown op: $($step.op)" }
     }

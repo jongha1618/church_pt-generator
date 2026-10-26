@@ -20,9 +20,13 @@
         <section class="card">
           <h2>1. 주보 불러오기</h2>
           <div class="row">
-            <button id="btnPickPdf" class="primary">주보 PDF 선택…</button>
+            <button id="btnAuto" class="primary big">⚡ 주보로 바로 생성</button>
+            <button id="btnPickPdf" class="ghost">주보만 불러오기…</button>
+          </div>
+          <div class="row">
             <span id="pdfName" class="muted">선택된 파일 없음</span>
           </div>
+          <div id="songStatus" class="songstatus"></div>
           <details class="raw">
             <summary>추출된 원문 보기</summary>
             <pre id="rawText" class="rawtext"></pre>
@@ -83,8 +87,17 @@
         <!-- Step 3: songs -->
         <section class="card">
           <h2>3. 찬양 파일</h2>
+          <div class="songgroup" data-key="praiseWorship1">
+            <div class="sg-head"><b>찬양과 경배 (1부)</b></div>
+            <div class="row hymnpick">
+              <input class="hymn-input" list="hymnList" placeholder="찬송가 번호/제목" />
+              <button class="add-hymn ghost">찬송가 추가</button>
+              <button class="pick-file ghost">PPT 파일 추가…</button>
+            </div>
+            <div class="chips"></div>
+          </div>
           <div class="songgroup" data-key="praiseWorship">
-            <div class="sg-head"><b>찬양과 경배 (2부)</b> <small class="muted">다른 분이 보내준 PPT 업로드</small></div>
+            <div class="sg-head"><b>찬양과 경배 (2부)</b></div>
             <div class="row"><button class="pick-file ghost">PPT 파일 추가…</button></div>
             <div class="chips"></div>
           </div>
@@ -97,8 +110,17 @@
             </div>
             <div class="chips"></div>
           </div>
+          <div class="songgroup" data-key="closingHymn1">
+            <div class="sg-head"><b>말씀 후 찬양 (1부)</b></div>
+            <div class="row hymnpick">
+              <input class="hymn-input" list="hymnList" placeholder="찬송가 번호/제목" />
+              <button class="add-hymn ghost">찬송가 추가</button>
+              <button class="pick-file ghost">PPT 파일 추가…</button>
+            </div>
+            <div class="chips"></div>
+          </div>
           <div class="songgroup" data-key="closingHymn">
-            <div class="sg-head"><b>말씀 후 찬양</b></div>
+            <div class="sg-head"><b>말씀 후 찬양 (2부)</b></div>
             <div class="row hymnpick">
               <input class="hymn-input" list="hymnList" placeholder="찬송가 번호/제목" />
               <button class="add-hymn ghost">찬송가 추가</button>
@@ -145,15 +167,17 @@
     <div id="settingsModal" class="modal hidden">
       <div class="modal-body">
         <h2>설정 (경로)</h2>
-        <p class="muted">성경·찬송가·경배와찬양 자료는 <code>C:\church\</code> 에 복사해서 사용하세요.</p>
+        <p class="muted">찬송가·경배와찬양 폴더는 교회 공용 드라이브(G:)를 가리킵니다. 폴더를 여러 개 쓰려면 <code>;</code> 로 구분해 입력하세요.</p>
         <div class="setrow"><label>템플릿 PPTX</label><input id="set_templatePath" /><button data-pick="file" data-target="set_templatePath" class="ghost">…</button></div>
         <div class="setrow"><label>찬송가 폴더</label><input id="set_hymnDir" /><button data-pick="dir" data-target="set_hymnDir" class="ghost">…</button></div>
         <div class="setrow"><label>경배와찬양 폴더</label><input id="set_praiseDir" /><button data-pick="dir" data-target="set_praiseDir" class="ghost">…</button></div>
+        <div class="setrow"><label>사도신경 파일</label><input id="set_creedSongPath" placeholder="매주 삽입하는 사도신경 PPT" /><button data-pick="file" data-target="set_creedSongPath" class="ghost">…</button></div>
         <div class="setrow"><label>축복송 파일 <small class="muted">(축도 후)</small></label><input id="set_blessingSongPath" placeholder="매년 바뀌는 축복송 PPT" /><button data-pick="file" data-target="set_blessingSongPath" class="ghost">…</button></div>
         <div class="setrow"><label>성경 DB 폴더</label><input id="set_bibleDir" /><button data-pick="dir" data-target="set_bibleDir" class="ghost">…</button></div>
         <div class="setrow"><label>출력 폴더</label><input id="set_outputDir" /><button data-pick="dir" data-target="set_outputDir" class="ghost">…</button></div>
         <div class="setrow"><label>한글 역본</label><input id="set_bibleKorean" /></div>
         <div class="setrow"><label>영문 역본</label><input id="set_bibleEnglish" /></div>
+        <div class="setrow"><label>담임목사 <small class="muted">(주보에 이름이 없을 때)</small></label><input id="set_defaultPastor" /></div>
         <div class="modal-actions">
           <button id="btnSaveSettings" class="primary">저장</button>
           <button id="btnCloseSettings" class="ghost">닫기</button>

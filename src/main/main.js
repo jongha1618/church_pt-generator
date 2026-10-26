@@ -21,6 +21,7 @@ function resolveIcon() {
 const config = require("./config");
 const bible = require("./bible");
 const { parseBulletin } = require("./bulletinParser");
+const { resolveSongs, indexHymns } = require("./songLibrary");
 const { generate } = require("./generator");
 
 let mainWindow = null;
@@ -56,7 +57,12 @@ app.on("window-all-closed", () => {
 
 // ---------- IPC --------------------------------------------------------------
 
-ipcMain.handle("config:get", () => config.load());
+ipcMain.handle("config:get", () => {
+  const cfg = config.load();
+  // The 주보 arrives by e-mail, so Downloads is the sensible default start folder.
+  if (!cfg.bulletinDir) cfg.bulletinDir = app.getPath("downloads");
+  return cfg;
+});
 ipcMain.handle("config:save", (_e, patch) => config.save(patch || {}));
 
 ipcMain.handle("dialog:pickFile", async (_e, opts = {}) => {
@@ -85,9 +91,21 @@ ipcMain.handle("dialog:pickDir", async (_e, opts = {}) => {
   return res.canceled ? null : res.filePaths[0];
 });
 
+// Parse the 주보 and resolve every song it lists to a file in the libraries, so
+// the form comes back fully filled in. `unmatched` lists what needs a manual pick.
 ipcMain.handle("bulletin:parse", async (_e, pdfPath) => {
   try {
-    return { ok: true, ...(await parseBulletin(pdfPath)) };
+    const cfg = config.load();
+    const parsed = await parseBulletin(pdfPath, { defaultPastor: cfg.defaultPastor });
+    const resolved = resolveSongs(parsed.songs, cfg);
+    return {
+      ok: true,
+      ...parsed,
+      resolvedSongs: resolved.songs,
+      matched: resolved.matched,
+      unmatched: resolved.unmatched,
+      libraryCounts: resolved.counts,
+    };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -111,19 +129,10 @@ ipcMain.handle("bible:versions", async (_e, bibleDir) => {
 });
 
 ipcMain.handle("hymns:list", async (_e, hymnDir) => {
-  const fs = require("fs");
   try {
-    const files = fs.readdirSync(hymnDir).filter((f) => /\.pptx$/i.test(f));
-    const items = files.map((f) => {
-      const m = /^(\d{1,3})\s*-\s*(.+)\.pptx$/i.exec(f);
-      return {
-        file: path.join(hymnDir, f),
-        num: m ? parseInt(m[1], 10) : null,
-        title: m ? m[2] : f.replace(/\.pptx$/i, ""),
-        name: f,
-      };
-    });
-    items.sort((a, b) => (a.num || 9999) - (b.num || 9999));
+    const items = indexHymns(hymnDir)
+      .map((e) => ({ file: e.file, num: e.num, title: e.title, name: e.name }))
+      .sort((a, b) => (a.num || 9999) - (b.num || 9999));
     return { ok: true, items };
   } catch (e) {
     return { ok: false, error: e.message, items: [] };

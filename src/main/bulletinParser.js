@@ -1,12 +1,17 @@
 "use strict";
 
 /**
- * bulletinParser.js — best-effort extraction of weekly fields from the 주보 PDF.
+ * bulletinParser.js — extracts the weekly fields from the 주보 PDF.
  *
- * PDF text extraction loses most spacing/column structure, so every field here
- * is a heuristic guess. The renderer always shows an editable review form
- * (pre-filled with these guesses) plus the raw extracted text for reference, so
- * imperfect parsing is expected and safe — the human confirms before generating.
+ * PDF text extraction loses column structure, so the two printed tables (예배
+ * 순서 and 봉사위원) are reconstructed heuristically. Everything is still shown
+ * in an editable review form, but the goal is that a bulletin drop-in needs no
+ * edits at all for a normal week.
+ *
+ * Two structures do most of the work:
+ *   parseOrder()   the order of worship, split into labelled entries. Entries
+ *                  carry 1부/2부 variants; the online deck uses 2부 (11:00AM).
+ *   parseServers() the 4-column 봉사위원 table — column 1 is this Sunday.
  */
 
 const fs = require("fs");
@@ -17,9 +22,14 @@ const fs = require("fs");
 function normalizeScriptureRef(raw) {
   if (!raw) return "";
   let s = raw.replace(/\s+/g, " ").trim();
+  // Drop a trailing English gloss: "에베소서5장20절(Ephesians 5:20)".
+  s = s.replace(/\([^)]*[A-Za-z][^)]*\)\s*$/, "").trim();
   // "히브리서12장18-24" / "히브리서 12장 18-24절" / "히 12:18-24" → "히브리서 12:18-24"
-  // Convert 장/절 markers to :  and collapse.
-  s = s.replace(/\s*장\s*/g, ":").replace(/\s*편\s*/g, ":").replace(/\s*절\s*/g, "");
+  // Convert 장/편/절 markers to ':' — but only after a digit, so the 편 in the
+  // book name 시편 survives.
+  s = s.replace(/(\d)\s*[장편]\s*/g, "$1:").replace(/(\d)\s*절/g, "$1");
+  // "요한복음 9장1-12장" (the bulletin's own typo for 12절) leaves a dangling ':'.
+  s = s.replace(/::+/g, ":").replace(/[:\s]+$/, "");
   // Insert a space between a trailing Hangul book name and the first digit.
   s = s.replace(/([가-힣])\s*(\d)/, "$1 $2");
   // Collapse spaces around : and -
@@ -28,45 +38,39 @@ function normalizeScriptureRef(raw) {
 }
 
 function collapse(text) {
-  return text.replace(/[ \t ]+/g, " ").replace(/\r/g, "");
-}
-
-// Grab the value after a Korean label up to end-of-line. Tolerant of the English
-// gloss + punctuation the bulletin uses, e.g. "말씀(Sermon): "시내산과 시온산"".
-function afterLabel(text, labelRegex) {
-  const re = new RegExp(labelRegex.source + String.raw`\s*(?:\([^)]*\))?\s*[:：\/]?\s*([^\n]+)`, labelRegex.flags);
-  const m = re.exec(text);
-  return m ? m[1].trim() : "";
+  return text.replace(/[ \t ]+/g, " ").replace(/\r/g, "");
 }
 
 function stripQuotes(s) {
-  return (s || "").replace(/^[\s"'“”‘’<>()]+|[\s"'“”‘’<>()]+$/g, "").trim();
+  return (s || "").replace(/^[\s"'“”‘’<>]+|[\s"'“”‘’<>]+$/g, "").trim();
 }
 
-// Extract a "이름 직분" (name + title) — or "" if none is found. Returning ""
-// (never the raw text) prevents unrelated text from leaking into {preacher} etc.
-function personName(s) {
-  const m = /([가-힣]{2,4})\s*(목사|장로|집사|권사|전도사|사모|안수집사|성도)/.exec(s || "");
-  return m ? `${m[1]} ${m[2]}` : "";
+// Drop "(Sermon)" / "(Elder Ko)" style English glosses, keeping Korean parens
+// (song titles legitimately use them).
+function dropEnglishGloss(s) {
+  return String(s || "")
+    .replace(/\([^)]*[A-Za-z][^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-// Preacher: prefer the worship-order "인도: <이름> 목사"; else the first "<이름> 목사"
-// in the bulletin; else "" (caller applies the default pastor).
-function parsePreacher(text) {
-  let m = /인도\s*[:：]\s*([가-힣]{2,4})\s*목사/.exec(text);
-  if (m) return `${m[1]} 목사`;
-  m = /([가-힣]{2,4})\s*목사/.exec(text);
-  return m ? `${m[1]} 목사` : "";
-}
+const TITLES = "안수집사|전도사|목사|장로|집사|권사|사모|성도|선교사";
+// Role words that precede a title but are not part of anyone's name.
+const NOT_A_NAME = /^(담임|부|협동|원로|인도자?|사회자?|전체|모든)$/;
 
-function parseBenediction(text) {
-  const m = /축도[^\n]{0,20}?([가-힣]{2,4})\s*목사/.exec(text);
-  return m ? `${m[1]} 목사` : "";
-}
-
-function parsePrayer(text) {
-  const m = /대표\s*기도[^\n]{0,20}?([가-힣]{2,4})\s*(장로|목사|집사|권사|전도사|안수집사|성도)/.exec(text);
-  return m ? `${m[1]} ${m[2]}` : "";
+// A person as printed in the bulletin — "전홍욱 안수집사", "월터 리 목사".
+// The name group is lazy so "전홍욱 안수집사" does not come out as
+// "전홍욱 안수" + "집사". Only apply to text already scoped to one field;
+// on free text it over-captures.
+function personIn(s) {
+  const re = new RegExp(`([가-힣]{1,4}(?:\\s[가-힣]{1,4}){0,2}?)\\s*(${TITLES})`, "g");
+  const text = dropEnglishGloss(s);
+  let m;
+  while ((m = re.exec(text))) {
+    const name = m[1].replace(/\s+/g, " ").trim();
+    if (!NOT_A_NAME.test(name)) return `${name} ${m[2]}`;
+  }
+  return "";
 }
 
 function isoDate(y, mo, d) {
@@ -96,6 +100,250 @@ function parseDate(text) {
 
   return "";
 }
+
+// The masthead above "(Sunday Worship Service)", e.g. "주일 예배",
+// "2026 추수감사주일". Falls back to the configured default.
+function parseServiceTitle(rawText) {
+  const m = /\n\s*([0-9]{0,4}\s*[가-힣][가-힣\s]{1,14}?)\s*\n\s*\(\s*Sunday Worship Service/i.exec(rawText);
+  return m ? m[1].replace(/\s+/g, " ").trim() : "";
+}
+
+// ---------------------------------------------------------------------------
+// Order of worship
+// ---------------------------------------------------------------------------
+
+/**
+ * Slice the printed 예배 순서 and split it into labelled entries.
+ *
+ * A new entry starts on a line whose first non-space character is a bullet
+ * ('*' for congregation-standing items, '-' otherwise); everything else is a
+ * continuation (wrapped song lists, the 1부/2부 sub-lines).
+ *
+ * Each entry: { label, gloss, body, raw }
+ *   label  Korean label with the English gloss removed ("찬양과 경배")
+ *   gloss  the English gloss, which disambiguates 찬양과 경배 / 찬양 ("Closing Hymn")
+ *   body   everything after the label's ':' or '/', continuations appended
+ */
+function parseOrder(rawText) {
+  const start = rawText.search(/[*\-•]?\s*예배로의\s*부름/);
+  if (start < 0) return [];
+  let block = rawText.slice(start);
+  const end = block.search(/\(\s*\*\s*는\s*일어서서|EMC111/);
+  if (end > 0) block = block.slice(0, end);
+
+  const chunks = [];
+  for (const line of block.split(/\n/)) {
+    if (/^\s*[*\-•]\s*[가-힣]/.test(line) || !chunks.length) chunks.push([line]);
+    else chunks[chunks.length - 1].push(line);
+  }
+
+  return chunks.map((lines) => {
+    const first = lines[0].replace(/^\s*[*\-•]\s*/, "");
+    const rest = lines.slice(1).join("\n");
+    // Split the label off at the first ':' / '/' that follows the Korean label
+    // (the English gloss in parentheses may itself contain neither).
+    const m = /^([^:：/]*?)\s*(?:\(([^)]*)\))?\s*[:：/]\s*([\s\S]*)$/.exec(first);
+    const label = m ? m[1].trim() : first.trim();
+    const gloss = m && m[2] ? m[2].trim() : "";
+    const head = m ? m[3] : "";
+    return {
+      label: label.replace(/\s+/g, " "),
+      gloss,
+      body: [head, rest].filter((s) => s && s.trim()).join("\n"),
+      raw: lines.join("\n"),
+    };
+  });
+}
+
+function findEntry(entries, labelRe, glossRe) {
+  return (
+    entries.find((e) => labelRe.test(e.label) && (!glossRe || glossRe.test(e.gloss))) || null
+  );
+}
+
+/**
+ * Split an entry body into its 1부 / 2부 variants. Returns { "1":…, "2":…, all }
+ * — `all` is the whole body, used when the bulletin lists no per-service split.
+ */
+function partsOf(body) {
+  const t = String(body || "").replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+  const re = /([12])\s*부\s*[:：]?\s*/g;
+  const hits = [];
+  let m;
+  while ((m = re.exec(t))) hits.push(m);
+  const out = { all: t };
+  hits.forEach((h, i) => {
+    const s = h.index + h[0].length;
+    const e = i + 1 < hits.length ? hits[i + 1].index : t.length;
+    out[h[1]] = t.slice(s, e).trim();
+  });
+  return out;
+}
+
+
+// "찬 48장. 만유의 주재" → {num:48, title:"만유의 주재"};  plain titles → {title}
+function parseSongItem(raw) {
+  // "(후렴) 온 맘 다해" / "하나님 아버지의 마음(후렴)" — the 후렴 note is not
+  // part of the title.
+  let s = dropEnglishGloss(raw)
+    .replace(/[(（]\s*후렴\s*[)）]/g, " ")
+    .replace(/^[\s.,·/]+|[\s.,·/]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return null;
+  const m = /^찬(?:송가)?\s*(\d{1,3})\s*장\s*[.·]?\s*(.*)$/.exec(s);
+  if (m) return { num: parseInt(m[1], 10), title: m[2].trim() };
+  return { num: null, title: s };
+}
+
+/** A comma/slash separated song list → [{num,title}]. */
+function parseSongList(body) {
+  return String(body || "")
+    .replace(/\n/g, " ")
+    .split(/\s*[,、]\s*/)
+    .map(parseSongItem)
+    .filter((x) => x && x.title.length > 1);
+}
+
+/**
+ * Split one entry's songs into the 1부 (8:30AM) and 2부 (11:00AM) columns.
+ * When the bulletin prints no split, the songs come back under `shared`.
+ */
+function partSongs(entry) {
+  if (!entry) return { 1: [], 2: [], shared: [] };
+  const p = partsOf(entry.body);
+  if (p["1"] || p["2"]) return { 1: parseSongList(p["1"]), 2: parseSongList(p["2"]), shared: [] };
+  return { 1: [], 2: [], shared: parseSongList(p.all) };
+}
+
+/**
+ * The song files to insert, bucketed by the template's anchor markers. The deck
+ * serves both services, so the 1부 and 2부 blocks are filled independently
+ * (MK_praise_worship1/2, MK_closing_hymn1/2). 찬송 (Hymn) and 성찬식 share a
+ * single anchor, so an unsplit list goes there as-is.
+ */
+function parseSongs(entries) {
+  const pw = findEntry(entries, /^찬양과\s*경배/);
+  const hymn = findEntry(entries, /^찬송$/) || findEntry(entries, /^찬송/, /Hymn/i);
+  const closing =
+    findEntry(entries, /^찬양$/, /Closing/i) ||
+    entries.find((e) => /^찬양$/.test(e.label) && e !== pw);
+  const communion = findEntry(entries, /^성찬식/);
+
+  const pwP = partSongs(pw);
+  const clP = partSongs(closing);
+  const hyP = partSongs(hymn);
+
+  return {
+    praiseWorship1: pwP[1],
+    praiseWorship2: pwP[2].length ? pwP[2] : pwP.shared,
+    openingHymn: hyP.shared.length ? hyP.shared : hyP[2].length ? hyP[2] : hyP[1],
+    closingHymn1: clP[1],
+    closingHymn2: clP[2].length ? clP[2] : clP.shared,
+    communion: communion ? parseSongList(communion.body) : [],
+  };
+}
+
+/**
+ * 성가대/특송: "1부:남성중창단(Men's Choir)  2부:성가대(Choir): 주 안에 있는 나에게"
+ * → 3 template slots; slot0 = 1부, slot2 = 2부 (matches special_praise0/2).
+ */
+function parseChoir(entries) {
+  const slots = [
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+    { title: "", singer: "" },
+  ];
+  const e = findEntry(entries, /^성가대/) || findEntry(entries, /^특송/);
+  if (!e) return slots;
+  const parts = partsOf(e.body);
+
+  const parseOne = (frag) => {
+    const f = dropEnglishGloss(frag).replace(/[’']/g, "'").replace(/[-*·/]+\s*$/g, "").trim();
+    if (!f) return { title: "", singer: "" };
+    const mm = /^(.*?)\s*[:：]\s*(.+)$/.exec(f); // "성가대 : 주 안에 있는 나에게"
+    if (mm && mm[2]) return { singer: mm[1].trim(), title: mm[2].trim() };
+    return { singer: f, title: "" }; // team only, e.g. 남성중창단
+  };
+
+  slots[0] = parseOne(parts["1"] || "");
+  slots[2] = parseOne(parts["2"] || (parts["1"] ? "" : parts.all));
+  return slots;
+}
+
+// ---------------------------------------------------------------------------
+// 봉사위원 (this week's servers)
+// ---------------------------------------------------------------------------
+
+/**
+ * The table has 4 date columns (this Sunday + the next 3). PDF extraction
+ * flattens it, so we take column 1:
+ *  - per-week rows (대표기도/친교음식/헌화) list 4 cells; cells are separated by
+ *    runs of 2+ spaces, and long cells wrap onto their own lines.
+ *  - month-wide rows (헌금위원/친교분배/안내위원/교회청소) print one value, plus
+ *    sometimes a "11월 …" line for next month — which we drop.
+ */
+function parseServers(rawText) {
+  const res = { prayer: "", lunch: "", serving: "", flower: "", offering: "", guide: "", cleaning: "" };
+  const start = rawText.search(/봉사\s*위원/);
+  if (start < 0) return res;
+  let block = rawText.slice(start);
+  const end = block.search(/-\s*오늘\s*예배|이달의\s*행사|예배\s*시간\s*안내/);
+  if (end > 0) block = block.slice(0, end);
+
+  // Longest first: "친교분배" must win over the bare "친교" fallback.
+  const LABELS = ["대표기도", "친교음식", "친교분배", "헌금위원", "안내위원", "교회청소", "헌화", "친교"].sort(
+    (a, b) => b.length - a.length
+  );
+  const labelAt = (line) => LABELS.find((lb) => line.replace(/^\s+/, "").startsWith(lb)) || null;
+
+  // label → the lines that belong to its row (first line keeps same-line value).
+  const rows = new Map();
+  let cur = null;
+  for (const raw of block.split(/\n/)) {
+    if (!raw.trim()) continue;
+    const lb = labelAt(raw);
+    if (lb) {
+      cur = lb;
+      if (!rows.has(cur)) rows.set(cur, []);
+      rows.get(cur).push(raw.replace(/^\s*/, "").slice(lb.length));
+    } else if (cur) {
+      rows.get(cur).push(raw);
+    }
+  }
+
+  // Next-month overrides ("11월 1부: …") are not this week's.
+  const thisMonthLines = (lb) =>
+    (rows.get(lb) || []).filter((l) => l.trim() && !/^\s*\d{1,2}\s*월/.test(l));
+
+  // Column 1 of a per-week row: first non-empty cell of the first value line.
+  const firstCell = (lb) => {
+    const lines = thisMonthLines(lb);
+    if (!lines.length) return "";
+    const cells = lines[0].split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
+    const cell = cells[0] || lines[0].trim();
+    return personIn(cell) || cell;
+  };
+
+  // Month-wide rows are taken verbatim (they read "1부: … / 2부: …").
+  const wholeCell = (lb) => {
+    const lines = thisMonthLines(lb);
+    return lines.length ? lines[0].replace(/\s+/g, " ").trim() : "";
+  };
+
+  res.prayer = firstCell("대표기도");
+  res.lunch = firstCell("친교음식") || firstCell("친교");
+  res.flower = firstCell("헌화");
+  res.offering = wholeCell("헌금위원");
+  res.serving = wholeCell("친교분배");
+  res.guide = wholeCell("안내위원");
+  res.cleaning = wholeCell("교회청소");
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// 교회소식 (announcements)
+// ---------------------------------------------------------------------------
 
 // Announcements: the 교회소식 block lists items, in the bulletin usually as
 // dash-led lines. We collect plausible announcement lines and let the user prune.
@@ -134,89 +382,6 @@ function parseAnnouncements(rawText) {
   );
 }
 
-// 성가대/특송 찬양: e.g. "성가대찬양(Choir): 1부:남성중창단(Men's Choir) 2부:성가대(Choir): 이제야 보이네"
-// → up to 3 slots [{title,singer}]: slot0 = 1부, slot2 = 2부 (matches template special_praise0/2).
-function parseChoir(text) {
-  const slots = [
-    { title: "", singer: "" },
-    { title: "", singer: "" },
-    { title: "", singer: "" },
-  ];
-  const start = text.search(/성가대\s*찬양/);
-  if (start < 0) return slots;
-  let scope = text.slice(start, start + 240).replace(/\n/g, " ");
-  const stop = scope.search(/성경\s*봉독|성경봉독|말씀\s*[(:：]/);
-  if (stop > 0) scope = scope.slice(0, stop);
-
-  const clean = (s) =>
-    (s || "")
-      .replace(/\([^)]*\)/g, " ") // drop (Choir)/(Men's Choir) glosses
-      .replace(/[’']/g, "'")
-      .replace(/[-*·/]+\s*$/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  const parseOne = (frag) => {
-    const f = clean(frag);
-    if (!f) return { title: "", singer: "" };
-    const mm = /^(.*?)\s*[:：]\s*(.+)$/.exec(f); // "성가대 : 이제야 보이네"
-    if (mm && mm[2]) return { singer: mm[1].trim(), title: mm[2].trim() };
-    return { singer: f, title: "" }; // team only, e.g. 남성중창단
-  };
-
-  const parts = scope.split(/2\s*부\s*[:：]?/);
-  const m1 = /1\s*부\s*[:：]?\s*(.*)$/.exec(parts[0] || "");
-  slots[0] = parseOne(m1 ? m1[1] : "");
-  slots[2] = parseOne(parts[1] || "");
-  return slots;
-}
-
-// 봉사위원 (this-week servers table). The table has 4 date columns (this week +
-// next 3); PDF extraction flattens it, so this is best-effort for THIS week only.
-//  - 헌금위원/친교분배/안내위원/교회청소 usually span all weeks → value is on the
-//    same line as the label (reliable).
-//  - 대표기도/친교음식/헌화 vary per week → take the first name after the label.
-function parseServers(rawText) {
-  const res = { prayer: "", lunch: "", serving: "", flower: "", offering: "", guide: "", cleaning: "" };
-  const start = rawText.search(/봉사\s*위원/);
-  if (start < 0) return res;
-  let block = rawText.slice(start, start + 1000);
-  const end = block.search(/-\s*오늘\s*예배|이달의\s*행사|예배\s*시간\s*안내/);
-  if (end > 0) block = block.slice(0, end);
-  const lines = block.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const labels = ["대표기도", "친교음식", "친교", "헌화", "헌금위원", "친교분배", "안내위원", "교회청소"];
-  const nameRe = /[가-힣]{2,4}\s*(집사|권사|장로|목사|사모|전도사|안수집사|성도)/;
-  const isLabel = (l) => labels.some((lb) => l.startsWith(lb));
-
-  const sameLineValue = (label) => {
-    const line = lines.find((l) => l.startsWith(label));
-    if (!line) return "";
-    return line.slice(label.length).replace(/^[:：\s]+/, "").trim();
-  };
-  const firstCellAfter = (label) => {
-    const idx = lines.findIndex((l) => l.startsWith(label));
-    if (idx < 0) return "";
-    const same = lines[idx].slice(label.length).replace(/^[:：\s]+/, "").trim();
-    if (same && (nameRe.test(same) || /^EM\b/.test(same))) {
-      const m = nameRe.exec(same);
-      return m ? same.slice(0, same.indexOf(m[0]) + m[0].length).trim() : same;
-    }
-    for (let i = idx + 1; i < lines.length; i++) {
-      if (isLabel(lines[i])) break;
-      if (nameRe.test(lines[i]) || /^EM$/.test(lines[i])) return lines[i];
-    }
-    return "";
-  };
-
-  res.prayer = firstCellAfter("대표기도");
-  res.lunch = firstCellAfter("친교음식") || firstCellAfter("친교");
-  res.flower = firstCellAfter("헌화");
-  res.offering = sameLineValue("헌금위원");
-  res.serving = sameLineValue("친교분배");
-  res.guide = sameLineValue("안내위원");
-  res.cleaning = sameLineValue("교회청소");
-  return res;
-}
-
 // Hymn numbers referenced in the order of worship (찬 38장 / 찬송가 183장).
 function parseHymnNumbers(text) {
   const nums = [];
@@ -226,43 +391,88 @@ function parseHymnNumbers(text) {
   return Array.from(new Set(nums));
 }
 
-async function parseBulletin(pdfPath) {
+// ---------------------------------------------------------------------------
+
+async function parseBulletin(pdfPath, opts = {}) {
+  const defaultPastor = opts.defaultPastor || "김형길 목사";
+
   const pdfParse = require("pdf-parse");
   const buffer = fs.readFileSync(pdfPath);
   const data = await pdfParse(buffer);
   const rawText = data.text || "";
   const text = collapse(rawText);
 
-  const sermonTitle = stripQuotes(afterLabel(text, /말씀/));
-  const scriptureRaw = stripQuotes(afterLabel(text, /성경\s*봉독/));
+  const entries = parseOrder(rawText);
+  const sermonEntry = findEntry(entries, /^말씀/) || findEntry(entries, /^설교/);
+  const scriptureEntry = findEntry(entries, /^성경\s*봉독/);
+  const prayerEntry = findEntry(entries, /^대표\s*기도/);
+  const benedictionEntry = findEntry(entries, /^축도/);
 
-  const specialPraise = parseChoir(text);
+  // "말씀 (Sermon): “다윗이 물려준 신앙유산” 김용배 목사" — the quoted part is the
+  // title; whatever follows it is the preacher.
+  let sermonTitle = "";
+  let preacher = "";
+  if (sermonEntry) {
+    const body = sermonEntry.body.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+    const q = /[“"'‘]\s*([^”"'’]+?)\s*[”"'’]/.exec(body);
+    if (q) {
+      sermonTitle = q[1].trim();
+      preacher = personIn(body.slice(q.index + q[0].length));
+    } else {
+      sermonTitle = stripQuotes(dropEnglishGloss(body).replace(/[/·]\s*[^/]*$/, ""));
+      preacher = personIn(body);
+    }
+  }
+  const benediction = (benedictionEntry && personIn(benedictionEntry.body)) || "";
+  if (!preacher) {
+    // The bulletin omits the preacher on a normal week: he is the presider named
+    // in the masthead ("인도: 김형길 목사") and he also gives the benediction.
+    // Scope to the masthead — "인도" also occurs in 교회소식 ("새벽기도회 인도-…").
+    const head = /\(\s*Sunday Worship Service[\s\S]{0,200}?예배로의\s*부름/i.exec(rawText);
+    const masthead = head && /(?:인도|사회)\s*[:：]\s*([^\n]{0,24})/.exec(head[0]);
+    preacher = (masthead && personIn(masthead[1])) || benediction;
+  }
+
   const servers = parseServers(rawText);
+  const songs = parseSongs(entries);
 
   const service = {
     date: parseDate(text),
+    serviceTitle: parseServiceTitle(rawText),
     sermonTitle,
-    preacher: parsePreacher(text) || "김형길 목사",
-    prayer: parsePrayer(text) || servers.prayer,
-    benediction: parseBenediction(text) || "김형길 목사",
+    preacher: preacher || defaultPastor,
+    prayer: (prayerEntry && personIn(prayerEntry.body)) || servers.prayer,
+    benediction: benediction || defaultPastor,
     lunch: servers.lunch,
     serving: servers.serving,
     flower: servers.flower,
     offering: servers.offering,
     guide: servers.guide,
     cleaning: servers.cleaning,
-    mainVerses: normalizeScriptureRef(scriptureRaw),
-    specialPraise,
+    mainVerses: normalizeScriptureRef(stripQuotes(scriptureEntry ? scriptureEntry.body : "")),
+    specialPraise: parseChoir(entries),
     announcements: parseAnnouncements(rawText),
   };
 
   return {
     service,
+    songs,
     rawText,
     hints: {
       hymnNumbers: parseHymnNumbers(text),
+      order: entries.map((e) => ({ label: e.label, gloss: e.gloss, body: e.body })),
     },
   };
 }
 
-module.exports = { parseBulletin, normalizeScriptureRef, parseDate, parseChoir, parseServers, parseAnnouncements };
+module.exports = {
+  parseBulletin,
+  normalizeScriptureRef,
+  parseDate,
+  parseOrder,
+  parseSongs,
+  parseChoir,
+  parseServers,
+  parseAnnouncements,
+  parseServiceTitle,
+};
