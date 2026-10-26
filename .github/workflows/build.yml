@@ -38,7 +38,30 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
 
-      - name: Publish to GitHub Release (on tag)
+      # main 에 푸시될 때마다 'latest' 릴리스를 덮어써서, 만료 없는 고정 링크로
+      # 설치 파일을 받을 수 있게 한다 (Artifacts 는 90일 후 삭제됨).
+      #   https://github.com/jongha1618/church_pt-generator/releases/latest
+      - name: Publish rolling release (main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 최신 빌드 (main)
+          body: |
+            `main` 최신 커밋으로 자동 빌드된 설치 파일입니다.
+            아래 `ChurchPPTGenerator-Setup-*.exe` 를 받아 실행하세요.
+
+            - 커밋: ${{ github.sha }}
+            - 빌드 번호: ${{ github.run_number }}
+          files: |
+            release/*.exe
+            release/latest.yml
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 버전 태그(v1.2.3)를 밀면 그 버전으로 별도 릴리스를 만든다.
+      - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:

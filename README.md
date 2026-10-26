@@ -42,7 +42,9 @@
 
 ## 설치 (다른 컴퓨터에서 사용)
 
-[Releases](https://github.com/jongha1618/church_pt-generator/releases) 에서 `ChurchPPTGenerator-Setup-x.y.z.exe` 를 내려받아 실행하면 설치됩니다. (자료 폴더 `C:\church\` 는 별도로 복사)
+[**최신 설치 파일 받기**](https://github.com/jongha1618/church_pt-generator/releases/latest) — `ChurchPPTGenerator-Setup-x.y.z.exe` 를 내려받아 실행하면 설치됩니다.
+
+`main` 에 푸시될 때마다 이 링크의 설치 파일이 자동으로 갱신됩니다. (성경 DB `C:\church\Bible.text\` 와 찬양 라이브러리는 별도로 준비)
 
 ## 개발
 
