@@ -101,11 +101,27 @@ function parseDate(text) {
   return "";
 }
 
-// The masthead above "(Sunday Worship Service)", e.g. "주일 예배",
-// "2026 추수감사주일". Falls back to the configured default.
-function parseServiceTitle(rawText) {
-  const m = /\n\s*([0-9]{0,4}\s*[가-힣][가-힣\s]{1,14}?)\s*\n\s*\(\s*Sunday Worship Service/i.exec(rawText);
-  return m ? m[1].replace(/\s+/g, " ").trim() : "";
+/**
+ * The Korean service name from the masthead sitting just above the order of
+ * worship — "주일 예배", "2026 추수감사주일". The English half may be one line
+ * ("(Sunday Worship Service)") or two ("(Thanksgiving Sunday" / "Worship
+ * Service)"), so we take the last Hangul-only line before it and ignore the
+ * service-time lines ("2부: 11:00 AM"). Falls back to the configured default.
+ */
+function parseServiceTitle(rawText, orderStart) {
+  const from = orderStart > 0 ? Math.max(0, orderStart - 400) : 0;
+  let window = rawText.slice(from, orderStart > 0 ? orderStart : undefined);
+  const eng = window.search(/Worship\s*Service/i);
+  if (eng > 0) window = window.slice(0, eng);
+
+  const lines = window.split("\n").map((l) => l.trim());
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!/[가-힣]/.test(l)) continue;
+    if (/[:：]|\d\s*[AaPp]\.?[Mm]/.test(l)) continue; // "2부: 11:00 AM", "사회:"
+    if (/^[0-9]{0,4}\s*[가-힣][가-힣\s0-9]{0,14}$/.test(l)) return l.replace(/\s+/g, " ");
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -124,13 +140,46 @@ function parseServiceTitle(rawText) {
  *   gloss  the English gloss, which disambiguates 찬양과 경배 / 찬양 ("Closing Hymn")
  *   body   everything after the label's ':' or '/', continuations appended
  */
-function parseOrder(rawText) {
-  const start = rawText.search(/[*\-•]?\s*예배로의\s*부름/);
-  if (start < 0) return [];
-  let block = rawText.slice(start);
-  const end = block.search(/\(\s*\*\s*는\s*일어서서|EMC111/);
-  if (end > 0) block = block.slice(0, end);
+/**
+ * Locate the order of worship inside the extracted text.
+ *
+ * It used to be anchored on "예배로의 부름", but the 절기 bulletins
+ * (추수감사주일, 성탄주일 …) print a different order that drops that line
+ * entirely. What every bulletin does have is a run of bulleted lines ending at
+ * the standing note / EMC111 block, so we find that end and walk back over the
+ * run. Blank and indented lines (wrapped song lists, the masthead's 사회 lines)
+ * are stepped over; the masthead itself stops the walk.
+ */
+function orderBlock(rawText) {
+  let end = rawText.search(/\(\s*\*\s*는\s*일어서서|EMC111/);
+  if (end < 0) end = rawText.length;
+  const head = rawText.slice(0, end);
 
+  // "Worship Service" also shows up in 이달의 행사 ("…End Of Year Worship
+  // Service"), so the masthead is the LAST one before the standing note.
+  let anchor = -1;
+  const mast = /Worship\s*Service/gi;
+  let m;
+  while ((m = mast.exec(head))) anchor = m.index;
+  if (anchor < 0) {
+    const call = /(^|\n)\s*[*\-•]?\s*예배로의\s*부름/.exec(head);
+    anchor = call ? call.index : 0;
+  }
+
+  // The order begins at the first bulleted line below the masthead. Its own
+  // lines are not all indented, so the block simply runs to the standing note.
+  const rel = head.slice(anchor).search(/(^|\n)\s*[*\-•]\s*[가-힣]/);
+  if (rel < 0) return { text: "", start: -1 };
+  let start = anchor + rel;
+  if (head[start] === "\n") start += 1;
+
+  const text = head.slice(start);
+  // Every service ends with a benediction; without one we grabbed the wrong run.
+  if (!/축도|성경\s*봉독|헌금\s*기도/.test(text)) return { text: "", start: -1 };
+  return { text, start };
+}
+
+function parseOrderFrom(block) {
   const chunks = [];
   for (const line of block.split(/\n/)) {
     if (/^\s*[*\-•]\s*[가-힣]/.test(line) || !chunks.length) chunks.push([line]);
@@ -148,6 +197,9 @@ function parseOrder(rawText) {
     const head = m ? m[3] : "";
     return {
       label: label.replace(/\s+/g, " "),
+      // Labels are sometimes letter-spaced in the PDF ("말 씀", "찬 송"), so
+      // matching runs against the space-free form.
+      key: label.replace(/\s+/g, ""),
       gloss,
       body: [head, rest].filter((s) => s && s.trim()).join("\n"),
       raw: lines.join("\n"),
@@ -155,9 +207,13 @@ function parseOrder(rawText) {
   });
 }
 
+function parseOrder(rawText) {
+  return parseOrderFrom(orderBlock(rawText).text);
+}
+
 function findEntry(entries, labelRe, glossRe) {
   return (
-    entries.find((e) => labelRe.test(e.label) && (!glossRe || glossRe.test(e.gloss))) || null
+    entries.find((e) => labelRe.test(e.key) && (!glossRe || glossRe.test(e.gloss))) || null
   );
 }
 
@@ -180,6 +236,17 @@ function partsOf(body) {
   return out;
 }
 
+/**
+ * Some Sundays run the two services differently — their own preacher, passage
+ * and benediction ("말씀: 1부: … / 2부: …"). The deck follows the 11:00AM 2부,
+ * so take that half when a body splits; otherwise the body stands as it is.
+ * Returns "" for `split` when there was nothing to split.
+ */
+function servicePart(body) {
+  const p = partsOf(body);
+  const split = p["2"] || p["1"] || "";
+  return { split, text: split || String(body || "") };
+}
 
 // "찬 48장. 만유의 주재" → {num:48, title:"만유의 주재"};  plain titles → {title}
 function parseSongItem(raw) {
@@ -196,13 +263,20 @@ function parseSongItem(raw) {
   return { num: null, title: s };
 }
 
-/** A comma/slash separated song list → [{num,title}]. */
+// Some weeks name who leads instead of what is sung — "찬양과 경배 / 찬양팀",
+// "특별찬양 / 연합성가대". Those are performers, never song files to insert.
+const PERFORMER = new RegExp(
+  `^(?:찬양팀|워십팀|워십|찬양대|성가대|연합성가대|[가-힣]*중창단|[가-힣]*찬양단|` +
+    `다같이|인도자|회중|전교인|[가-힣]{1,4}(?:\\s[가-힣]{1,4}){0,2}\\s*(?:${TITLES}))$`
+);
+
+/** A comma separated song list → [{num,title}]. */
 function parseSongList(body) {
   return String(body || "")
     .replace(/\n/g, " ")
     .split(/\s*[,、]\s*/)
     .map(parseSongItem)
-    .filter((x) => x && x.title.length > 1);
+    .filter((x) => x && x.title.length > 1 && !PERFORMER.test(x.title));
 }
 
 /**
@@ -254,7 +328,8 @@ function parseChoir(entries) {
     { title: "", singer: "" },
     { title: "", singer: "" },
   ];
-  const e = findEntry(entries, /^성가대/) || findEntry(entries, /^특송/);
+  const e =
+    findEntry(entries, /^성가대/) || findEntry(entries, /^특송/) || findEntry(entries, /^특별찬양/);
   if (!e) return slots;
   const parts = partsOf(e.body);
 
@@ -321,7 +396,13 @@ function parseServers(rawText) {
     const lines = thisMonthLines(lb);
     if (!lines.length) return "";
     const cells = lines[0].split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
-    const cell = cells[0] || lines[0].trim();
+    let cell = cells[0] || lines[0].trim();
+    // A cell that is not a person's name can wrap onto the next line
+    // ("추수감사" / "만찬"); stitch the two halves back together.
+    if (cells.length <= 1 && !personIn(cell) && lines[1]) {
+      const next = lines[1].split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
+      if (next.length === 1 && !personIn(next[0])) cell = `${cell} ${next[0]}`.trim();
+    }
     return personIn(cell) || cell;
   };
 
@@ -348,14 +429,29 @@ function parseServers(rawText) {
 // Announcements: the 교회소식 block lists items, in the bulletin usually as
 // dash-led lines. We collect plausible announcement lines and let the user prune.
 function parseAnnouncements(rawText) {
-  // Scope to the 교회소식 announcement block: from the first "- 오늘 예배에 참석…"
-  // bullet up to "* 이달의 행사" (which lists events, not weekly announcements).
-  const startIdx = rawText.search(/-\s*오늘\s*예배/);
+  // Scope to the 교회소식 block: from the welcome notice up to "* 이달의 행사"
+  // (events, not weekly notices). The notice marker is a dash most weeks and a
+  // number on 절기 bulletins, so accept either when locating the start.
   const endIdx = rawText.search(/[*]?\s*이달의\s*행사/);
+  let startIdx = rawText.search(/(?:^|\n)\s*(?:[-•·]|\d+\s*[.)])\s*오늘\s*예배/);
+  if (startIdx < 0) {
+    // No welcome line: fall back to the first marked line after 봉사위원.
+    const after = rawText.search(/봉사\s*위원/);
+    if (after >= 0) {
+      const rel = rawText.slice(after, endIdx > after ? endIdx : undefined).search(/\n\s*(?:[-•·]|\d+\s*[.)])\s*[가-힣]/);
+      if (rel >= 0) startIdx = after + rel;
+    }
+  }
   let scope = rawText;
   if (startIdx >= 0) scope = rawText.slice(startIdx, endIdx > startIdx ? endIdx : startIdx + 3000);
 
   const lines = scope.split(/\n/);
+  // 절기 bulletins number their notices ("1. …") and print an English rendering
+  // under each one. Follow whichever marker this bulletin actually uses, so a
+  // numbered notice's own sub-points are not torn out as separate notices.
+  const numbered = lines.filter((l) => /^\s*\d+\s*[.)]\s*\S/.test(l)).length >= 3;
+  const marker = numbered ? /^\d+\s*[.)]\s*/ : /^[-•·]\s*/;
+
   const items = [];
   let cur = null;
   const flush = () => {
@@ -365,9 +461,10 @@ function parseAnnouncements(rawText) {
   for (const raw of lines) {
     const t = raw.trim();
     if (!t) continue;
-    if (/^[-•·]\s*/.test(t)) {
+    if (!/[가-힣]/.test(t)) continue; // the English rendering — slides are Korean
+    if (marker.test(t)) {
       flush();
-      cur = t.replace(/^[-•·]\s*/, "").trim();
+      cur = t.replace(marker, "").trim();
     } else if (cur !== null) {
       cur += " " + t; // wrapped continuation line
     }
@@ -402,43 +499,73 @@ async function parseBulletin(pdfPath, opts = {}) {
   const rawText = data.text || "";
   const text = collapse(rawText);
 
-  const entries = parseOrder(rawText);
+  const order = orderBlock(rawText);
+  const entries = parseOrderFrom(order.text);
   const sermonEntry = findEntry(entries, /^말씀/) || findEntry(entries, /^설교/);
-  const scriptureEntry = findEntry(entries, /^성경\s*봉독/);
-  const prayerEntry = findEntry(entries, /^대표\s*기도/);
+  const scriptureEntry = findEntry(entries, /^성경봉독/);
+  const prayerEntry = findEntry(entries, /^대표기도/);
   const benedictionEntry = findEntry(entries, /^축도/);
+  const warnings = [];
 
   // "말씀 (Sermon): “다윗이 물려준 신앙유산” 김용배 목사" — the quoted part is the
   // title; whatever follows it is the preacher.
   let sermonTitle = "";
   let preacher = "";
+  let sermonVerses = "";
   if (sermonEntry) {
-    const body = sermonEntry.body.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+    const sermonBody = servicePart(sermonEntry.body).text;
+    const body = sermonBody.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
     const q = /[“"'‘]\s*([^”"'’]+?)\s*[”"'’]/.exec(body);
     if (q) {
       sermonTitle = q[1].trim();
       preacher = personIn(body.slice(q.index + q[0].length));
     } else {
-      sermonTitle = stripQuotes(dropEnglishGloss(body).replace(/[/·]\s*[^/]*$/, ""));
+      // Unquoted, as on 절기 bulletins: "말 씀(Scripture & Sermon) / 감사제
+      // (시116:1-19)", with the English rendering on the line below. The title
+      // is the first line, minus any passage printed after it.
+      let line = sermonBody.split("\n")[0].trim();
+      const ref = /[（(]\s*([^()]*\d[^()]*)\s*[)）]\s*$/.exec(line);
+      if (ref && /[가-힣]/.test(ref[1])) {
+        sermonVerses = normalizeScriptureRef(ref[1]);
+        line = line.slice(0, ref.index).trim();
+      }
+      sermonTitle = stripQuotes(dropEnglishGloss(line).replace(/\s*[/·]\s*[^/·]*$/, "").trim());
       preacher = personIn(body);
     }
   }
-  const benediction = (benedictionEntry && personIn(benedictionEntry.body)) || "";
+  const benediction =
+    (benedictionEntry && personIn(servicePart(benedictionEntry.body).text)) || "";
   if (!preacher) {
-    // The bulletin omits the preacher on a normal week: he is the presider named
-    // in the masthead ("인도: 김형길 목사") and he also gives the benediction.
-    // Scope to the masthead — "인도" also occurs in 교회소식 ("새벽기도회 인도-…").
-    const head = /\(\s*Sunday Worship Service[\s\S]{0,200}?예배로의\s*부름/i.exec(rawText);
-    const masthead = head && /(?:인도|사회)\s*[:：]\s*([^\n]{0,24})/.exec(head[0]);
-    preacher = (masthead && personIn(masthead[1])) || benediction;
+    // The bulletin omits the preacher on a normal week: he is the pastor named
+    // in the masthead ("인도: 김형길 목사" / "사회: 김형길 목사"), and he also
+    // gives the benediction. Scope to the masthead directly above the order —
+    // "인도" also occurs in 교회소식 ("새벽기도회 인도-…"). The name often sits on
+    // the line below the label, so the capture spans the line break.
+    const head = order.start > 0 ? rawText.slice(Math.max(0, order.start - 400), order.start) : "";
+    const masthead = /(?:인도|사회)\s*[:：]\s*([\s\S]{0,40})/.exec(head);
+    const presider = masthead ? personIn(masthead[1]) : "";
+    preacher = (/목사$/.test(presider) ? presider : "") || benediction;
   }
 
   const servers = parseServers(rawText);
   const songs = parseSongs(entries);
 
+  // 성경봉독 is what the verse slides show. When the 말씀 line names a different
+  // passage (절기 주일 often do), say so rather than silently picking one.
+  const readVerses = normalizeScriptureRef(
+    servicePart(stripQuotes(scriptureEntry ? scriptureEntry.body : "")).text
+  );
+  const mainVerses = readVerses || sermonVerses;
+  if (readVerses && sermonVerses && readVerses !== sermonVerses) {
+    warnings.push(`성경봉독(${readVerses})과 말씀 본문(${sermonVerses})이 다릅니다 — 확인하세요`);
+  }
+  if (!entries.length) warnings.push("예배 순서를 찾지 못했습니다 — 아래 항목을 직접 채워주세요");
+  if (!sermonTitle) warnings.push("설교 제목을 찾지 못했습니다");
+  if (!mainVerses) warnings.push("성경 본문을 찾지 못했습니다");
+
   const service = {
     date: parseDate(text),
-    serviceTitle: parseServiceTitle(rawText),
+    serviceTitle: parseServiceTitle(rawText, order.start),
     sermonTitle,
     preacher: preacher || defaultPastor,
     prayer: (prayerEntry && personIn(prayerEntry.body)) || servers.prayer,
@@ -449,7 +576,7 @@ async function parseBulletin(pdfPath, opts = {}) {
     offering: servers.offering,
     guide: servers.guide,
     cleaning: servers.cleaning,
-    mainVerses: normalizeScriptureRef(stripQuotes(scriptureEntry ? scriptureEntry.body : "")),
+    mainVerses,
     specialPraise: parseChoir(entries),
     announcements: parseAnnouncements(rawText),
   };
@@ -457,9 +584,11 @@ async function parseBulletin(pdfPath, opts = {}) {
   return {
     service,
     songs,
+    warnings,
     rawText,
     hints: {
       hymnNumbers: parseHymnNumbers(text),
+      sermonVerses,
       order: entries.map((e) => ({ label: e.label, gloss: e.gloss, body: e.body })),
     },
   };

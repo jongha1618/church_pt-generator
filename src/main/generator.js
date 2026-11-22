@@ -32,8 +32,58 @@ function bundledResource(name) {
 
 // Use the configured template if it exists; otherwise fall back to the default
 // template bundled in the repo/installer.
-function resolveTemplatePath(configured) {
-  return firstExisting([configured, ...bundledResource("2026-Sunday-Template.pptx")]) || configured;
+/**
+ * Does this .pptx still have its {token} placeholders?
+ *
+ * Saving a finished deck over the template is an easy mistake, and the result
+ * is silent: every slide keeps last week's sermon and the verse blocks have
+ * already been duplicated, so the deck comes out wrong rather than failing.
+ * A .pptx is a zip, so the check costs nothing — read the slide XML and look
+ * for the tokens the recipe relies on. Whitespace is stripped because
+ * PowerPoint splits text across runs ("{ sermon_title }").
+ */
+// Structural to the recipe and all still unfilled in a real template. A deck
+// saved over the template keeps a few stragglers (the 성가대 slots are blank
+// most weeks), so requiring any one token is not enough — require them all.
+const TEMPLATE_TOKENS = ["{sermon_title}", "{preacher}", "{each_verse1:"];
+
+function templateHasTokens(file) {
+  try {
+    const AdmZip = require("adm-zip");
+    const entries = new AdmZip(file)
+      .getEntries()
+      .filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.entryName));
+    if (!entries.length) return false;
+    const text = entries
+      .map((e) =>
+        (e.getData().toString("utf8").match(/<a:t>[^<]*<\/a:t>/g) || [])
+          .map((t) => t.slice(5, -6))
+          .join("")
+      )
+      .join("")
+      .replace(/\s+/g, "");
+    return TEMPLATE_TOKENS.every((t) => text.includes(t));
+  } catch {
+    return true; // unreadable here is the engine's problem to report, not ours
+  }
+}
+
+/**
+ * Use the configured template when it is a real template; otherwise fall back
+ * to the clean copy bundled with the app. `onWarn` reports why.
+ */
+function resolveTemplatePath(configured, onWarn = () => {}) {
+  const bundled = firstExisting(bundledResource("2026-Sunday-Template.pptx"));
+  const found = firstExisting([configured, bundled]);
+  if (!found) return configured;
+  if (found === configured && bundled && !templateHasTokens(configured)) {
+    onWarn(
+      `! 템플릿에 {token} 자리표시자가 없습니다 — 완성된 주보 PPT 가 템플릿 자리에 저장된 것 같습니다:\n` +
+        `  ${configured}\n  대신 앱에 포함된 기본 템플릿을 사용합니다. 설정에서 템플릿 경로를 확인해 주세요.`
+    );
+    return bundled;
+  }
+  return found;
 }
 
 /** Format a single verse token spec (%b %c:%v %t) — mirrors engine.ps1 Format-Verse. */
@@ -228,7 +278,7 @@ async function generate(service, config, onLog = () => {}, onProgress = () => {}
   }
 
   const base = recipe.outputBaseName(service.date);
-  const templatePath = resolveTemplatePath(config.templatePath);
+  const templatePath = resolveTemplatePath(config.templatePath, log);
   log(`템플릿: ${templatePath}`);
 
   // 2. 예배-Notes.txt

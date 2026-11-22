@@ -224,6 +224,9 @@ function applySongs(res) {
     d.textContent = text;
     box.appendChild(d);
   };
+  // Parsing warnings first — they are about the service itself (설교 제목,
+  // 성경 본문), so they matter more than which song file was picked.
+  (res.warnings || []).forEach((w) => line("warn", `⚠ ${w}`));
   line("ok", `주보의 찬양 ${matched.length + unmatched.length}곡 중 ${matched.length}곡을 찾았습니다.`);
   matched.filter((m) => m.note).forEach((m) => line("warn", `※ ${m.label} → ${m.name} (${m.note})`));
   unmatched.forEach((m) => line("warn", `✗ 파일 없음: ${m.label} — 직접 추가하세요`));
