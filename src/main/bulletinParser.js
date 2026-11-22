@@ -550,14 +550,18 @@ async function parseBulletin(pdfPath, opts = {}) {
   const servers = parseServers(rawText);
   const songs = parseSongs(entries);
 
-  // 성경봉독 is what the verse slides show. When the 말씀 line names a different
-  // passage (절기 주일 often do), say so rather than silently picking one.
+  // The verse slides normally follow 성경봉독, which on an ordinary week is the
+  // sermon passage anyway. When the 말씀 line names its own passage and the two
+  // disagree, the 성경봉독 line is usually last week's left over, so the sermon
+  // passage wins — and the swap is reported so it can be checked.
   const readVerses = normalizeScriptureRef(
     servicePart(stripQuotes(scriptureEntry ? scriptureEntry.body : "")).text
   );
-  const mainVerses = readVerses || sermonVerses;
+  const mainVerses = sermonVerses || readVerses;
   if (readVerses && sermonVerses && readVerses !== sermonVerses) {
-    warnings.push(`성경봉독(${readVerses})과 말씀 본문(${sermonVerses})이 다릅니다 — 확인하세요`);
+    warnings.push(
+      `성경봉독(${readVerses})과 말씀 본문(${sermonVerses})이 다릅니다 — 말씀 본문을 사용합니다`
+    );
   }
   if (!entries.length) warnings.push("예배 순서를 찾지 못했습니다 — 아래 항목을 직접 채워주세요");
   if (!sermonTitle) warnings.push("설교 제목을 찾지 못했습니다");
